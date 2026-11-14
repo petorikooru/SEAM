@@ -7,7 +7,7 @@ adapter behind the existing TelemetryRepository interface.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 
 from kai_bridge_inspection.domain.errors import ConfigurationError
 from kai_bridge_inspection.domain.models import HistoricalQuery, TelemetryPage, TelemetryPoint
@@ -24,6 +24,9 @@ class InfluxTelemetryRepository:
         raise NotImplementedError
 
     def query(self, query: HistoricalQuery) -> TelemetryPage:
+        raise NotImplementedError
+
+    def iter_points(self, query: HistoricalQuery) -> Iterator[TelemetryPoint]:
         raise NotImplementedError
 
     def latest_values(self, device_id: str, limit: int = 200) -> Sequence[TelemetryPoint]:

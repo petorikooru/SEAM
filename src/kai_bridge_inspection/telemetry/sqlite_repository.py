@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from concurrent.futures import CancelledError
 from contextlib import contextmanager
 from pathlib import Path
+from threading import Event
 from typing import Final
 
 from kai_bridge_inspection.domain.errors import TelemetryStorageError
@@ -114,9 +116,8 @@ class SQLiteTelemetryRepository:
             raise TelemetryStorageError(f"failed to write telemetry batch: {exc}") from exc
         return len(rows)
 
-    def query(self, query: HistoricalQuery) -> TelemetryPage:
-        limit = max(1, min(query.limit, _MAX_QUERY_LIMIT))
-        offset = max(0, query.offset)
+    @staticmethod
+    def _query_filters(query: HistoricalQuery) -> tuple[str, list[object]]:
         clauses: list[str] = []
         parameters: list[object] = []
         if query.start_timestamp_ns > 0:
@@ -138,6 +139,12 @@ class SQLiteTelemetryRepository:
             clauses.append("protocol = ?")
             parameters.append(query.protocol)
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        return where, parameters
+
+    def query(self, query: HistoricalQuery) -> TelemetryPage:
+        limit = max(1, min(query.limit, _MAX_QUERY_LIMIT))
+        offset = max(0, query.offset)
+        where, parameters = self._query_filters(query)
         try:
             with self._connection() as connection:
                 total = int(
@@ -156,6 +163,65 @@ class SQLiteTelemetryRepository:
         if len(points) > max_points:
             points = self._downsample(points, max_points)
         return TelemetryPage(points=tuple(points), total_count=total, limit=limit, offset=offset)
+
+    def sample_history(
+        self, query: HistoricalQuery, cancel: Event | None = None,
+        progress: Callable[[int], None] | None = None,
+    ) -> list[tuple[int, float]]:
+        if cancel is not None and cancel.is_set():
+            raise CancelledError
+        where, parameters = self._query_filters(query)
+        conjunction = " AND " if where else " WHERE "
+        sql = (
+            "SELECT timestamp_ns, COALESCE(integer_value, numeric_value) "
+            "FROM telemetry_points" + where
+            + conjunction
+            + "(integer_value IS NOT NULL OR numeric_value IS NOT NULL)"
+        )
+        with self._connection() as connection:
+            # Keep the endpoints and bucket lookups on the same read snapshot.
+            connection.execute("BEGIN")
+            first = connection.execute(sql + " ORDER BY timestamp_ns, id LIMIT 1", parameters).fetchone()
+            if first is None:
+                return []
+            last = connection.execute(sql + " ORDER BY timestamp_ns DESC, id DESC LIMIT 1", parameters).fetchone()
+            points = [(first[0], first[1])]
+            if query.max_points <= 1 or last is None or last[0] == first[0]:
+                return points
+            bucket_count = query.max_points - 2
+            if bucket_count == 0:
+                return [*points, (last[0], last[1])]
+            span = last[0] - first[0]
+            bucket_width = (span + bucket_count - 1) // bucket_count
+            next_sql = sql + " AND timestamp_ns >= ? AND timestamp_ns < ? ORDER BY timestamp_ns, id LIMIT 1"
+            origin = first[0] + 1
+            start = origin
+            while start < last[0]:
+                if cancel is not None and cancel.is_set():
+                    raise CancelledError
+                row = connection.execute(next_sql, (*parameters, start, last[0])).fetchone()
+                if row is None:
+                    break
+                points.append((row[0], row[1]))
+                # Jump directly past the bucket containing the next reading.
+                start = origin + ((row[0] - origin) // bucket_width + 1) * bucket_width
+                if progress is not None:
+                    progress(min(99, (start - origin) * 100 // span))
+            points.append((last[0], last[1]))
+            return points
+
+    def iter_points(self, query: HistoricalQuery) -> Iterator[TelemetryPoint]:
+        where, parameters = self._query_filters(query)
+        try:
+            with self._connection() as connection:
+                rows = connection.execute(
+                    f"SELECT * FROM telemetry_points{where} ORDER BY timestamp_ns, id",
+                    parameters,
+                )
+                for row in rows:
+                    yield self._row_to_point(row)
+        except sqlite3.Error as exc:
+            raise TelemetryStorageError(f"telemetry query failed: {exc}") from exc
 
     def latest_values(self, device_id: str, limit: int = 200) -> Sequence[TelemetryPoint]:
         bounded_limit = max(1, min(limit, 2_000))

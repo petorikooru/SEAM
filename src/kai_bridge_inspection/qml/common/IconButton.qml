@@ -16,11 +16,13 @@ Button {
     implicitHeight: buttonSize
     padding: 0
     hoverEnabled: true
+    Accessible.name: tip
 
     background: Rectangle {
         radius: 8
         color: control.down ? Theme.controlPressed : (control.hovered ? Theme.controlHover : control.normalColor)
-        border.color: control.hovered || control.activeFocus ? Theme.borderLight : Theme.border
+        border.color: control.visualFocus ? Theme.text : (control.hovered ? Theme.borderLight : Theme.border)
+        border.width: control.visualFocus ? 2 : 1
     }
 
     contentItem: LucideIcon {

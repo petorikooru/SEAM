@@ -7,19 +7,25 @@ catalog operations, endpoint binding, read-only queries, and chart rendering.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
+from uuid import uuid4
 from collections import defaultdict, deque
+from collections.abc import Callable
+from concurrent.futures import CancelledError, Future, ThreadPoolExecutor
 from dataclasses import replace
 from itertools import pairwise
 from pathlib import Path
 from statistics import median
+from threading import Event
 from typing import Final
 
 from PySide6.QtCharts import QXYSeries
-from PySide6.QtCore import Property, QObject, QPointF, QTimer, QUrl, Signal, Slot
+from PySide6.QtCore import Property, QIODevice, QObject, QPointF, QSaveFile, QTimer, QUrl, Qt, Signal, Slot
 from PySide6.QtGui import QDesktopServices
+from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 
 from kai_bridge_inspection.application.paths import ApplicationPaths
 from kai_bridge_inspection.domain.models import HistoricalQuery, LocationRecord, SensorRecord
@@ -42,9 +48,31 @@ _DEFAULT_LAT: Final[float] = -6.917464
 _DEFAULT_LON: Final[float] = 107.619123
 
 
+def _live_plot_points(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    if len(points) <= _LIVE_POINT_LIMIT:
+        return points
+    interior = points[1:-1]
+    buckets = (_LIVE_POINT_LIMIT - 2) // 2
+    width = (len(interior) + buckets - 1) // buckets
+    result = [points[0]]
+    for start in range(0, len(interior), width):
+        bucket = interior[start:start + width]
+        low = min(range(len(bucket)), key=lambda index: bucket[index][1])
+        high = max(range(len(bucket)), key=lambda index: bucket[index][1])
+        result.extend(bucket[index] for index in sorted({low, high}))
+    result.append(points[-1])
+    return result
+
+
 class BackendController(QObject):
     """Stable bridge for the supplied QML while core services remain replaceable."""
 
+    historyMetricsReady = Signal(int, "QVariantList")
+    _historyMetricsCompleted = Signal(int, "QVariantList")
+    historyProgress = Signal(int, int)
+    _historyProgress = Signal(int, int)
+    historyReady = Signal(int, "QVariantList")
+    _historyCompleted = Signal(int, "QVariantList")
     nodeRedConfigChanged = Signal()
     nodeRedBindingsChanged = Signal()
     mqttConfigChanged = Signal()
@@ -53,7 +81,10 @@ class BackendController(QObject):
     sensorAdded = Signal()
     indicatorsUpdated = Signal("QVariant")
     mqttHealthUpdated = Signal("QVariant")
+    sensorConnectionChanged = Signal(str, bool)
     notificationRaised = Signal(str, str)
+    csvExportStarted = Signal()
+    csvExportFinished = Signal(str)
 
     def __init__(
         self,
@@ -63,6 +94,7 @@ class BackendController(QObject):
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
+        self._otac_network = QNetworkAccessManager(self)
         self.paths = paths
         self.settings = settings
         self.daemon_controller = daemon_controller
@@ -70,16 +102,37 @@ class BackendController(QObject):
         self.query_service = TelemetryQueryService(self.telemetry_repository)
         self._broker_ids: list[int] = []
         self._charts_paused = False
+        self._history_visible = False
+        self._history_metrics_request = 0
+        self._history_metrics_job: Future[list[str]] | None = None
+        self._history_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="seam-history")
+        self._history_job: Future[list[dict[str, object]]] | None = None
+        self._history_request = 0
+        self._history_cancel = Event()
+        self._export_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="seam-export")
+        self._stop_export = Event()
+        self._export_job: Future[int | None] | None = None
+        self.csvExportFinished.connect(self._finish_export, Qt.ConnectionType.QueuedConnection)
+        self._historyMetricsCompleted.connect(self.historyMetricsReady.emit, Qt.ConnectionType.QueuedConnection)
+        self._historyProgress.connect(self.historyProgress.emit, Qt.ConnectionType.QueuedConnection)
+        self._historyCompleted.connect(self.historyReady.emit, Qt.ConnectionType.QueuedConnection)
+        self._pending_indicators: dict[str, dict[str, object]] = defaultdict(dict)
+        self._render_keys: dict[tuple[str, str], tuple[float, float, int, float]] = {}
         self._chart_series: dict[str, dict[str, QXYSeries | None]] = {}
         self._buffers: dict[str, dict[str, deque[tuple[float, float]]]] = {}
         self._latest_values: dict[str, dict[str, object]] = defaultdict(dict)
         self._device_to_sensor: dict[str, str] = {}
         self._sensor_to_device: dict[str, str] = {}
+        self._sensor_activity: dict[str, tuple[float, bool]] = {}
         self._refresh_sensor_mapping()
+        self._sensor_watch = QTimer(self, interval=1000)
+        self._sensor_watch.timeout.connect(self._check_sensor_activity)
+        self._sensor_watch.start()
         self.daemon_controller.telemetryBatch.connect(self._on_telemetry_batch)
         self.daemon_controller.statusChanged.connect(self._on_daemon_status)
         self._render_timer = QTimer(self)
         self._render_timer.setInterval(max(50, int(self.settings.get_setting("ui_refresh_ms", "100"))))
+        self._render_timer.timeout.connect(self._flush_indicators)
         self._render_timer.timeout.connect(self._render_charts)
         self._render_timer.start()
 
@@ -110,6 +163,9 @@ class BackendController(QObject):
 
     @Slot()
     def stopServices(self) -> None:
+        self._history_cancel.set()
+        self._stop_export.set()
+        self._export_executor.shutdown(wait=True, cancel_futures=True)
         self.daemon_controller.close()
         self.telemetry_repository.close()
 
@@ -265,6 +321,171 @@ class BackendController(QObject):
     def nodeRedPort(self) -> str:
         return self.settings.get_setting("nr_port", "1880")
 
+    beanCommandFinished = Signal(str, str)
+
+    beanRatesLoaded = Signal(str, "QVariantList")
+    beanDownloadProgress = Signal(str, int)
+    beanDownloadFinished = Signal(str, bool, str)
+
+    def _bean_request(self) -> QNetworkRequest | None:
+        address = self.nodeRedAddress
+        url = QUrl(address if "://" in address else "http://" + address)
+        if url.scheme() == "wss":
+            url.setScheme("https")
+        elif url.scheme() == "ws":
+            url.setScheme("http")
+        if url.scheme() not in {"http", "https"} or not url.host() or not self.nodeRedPort.isdecimal():
+            return None
+        port = int(self.nodeRedPort)
+        if not 1 <= port <= 65535:
+            return None
+        url.setPort(port)
+        url.setPath("/kai/beandevice/streaming")
+        url.setQuery("")
+        url.setFragment("")
+        request = QNetworkRequest(url)
+        request.setTransferTimeout(5000)
+        request.setAttribute(QNetworkRequest.Attribute.RedirectPolicyAttribute,
+                             QNetworkRequest.RedirectPolicy.ManualRedirectPolicy)
+        request.setHeader(QNetworkRequest.KnownHeaders.ContentTypeHeader, "application/json")
+        return request
+
+    @Slot(str)
+    def loadBeanRates(self, name: str) -> None:
+        sensor = self.settings.get_sensor(name)
+        request = self._bean_request()
+        if sensor is None or request is None or not re.fullmatch(r"[0-9A-Fa-f]{16}", sensor.device_id):
+            self.beanRatesLoaded.emit(name, [])
+            return
+        url = request.url()
+        url.setQuery("device_id=" + sensor.device_id.upper())
+        request.setUrl(url)
+        reply = self._otac_network.get(request)
+
+        def finish() -> None:
+            rates: list[int] = []
+            if reply.error() == QNetworkReply.NetworkError.NoError:
+                try:
+                    body = json.loads(bytes(reply.readAll().data()))
+                    values = body.get("rates") if isinstance(body, dict) else None
+                    if isinstance(values, list):
+                        rates = sorted({rate for rate in values if type(rate) is int and 1 <= rate <= 65535})
+                except (ValueError, TypeError):
+                    pass
+            self.beanRatesLoaded.emit(name, rates)
+            reply.deleteLater()
+
+        reply.finished.connect(finish)
+
+    @Slot(str, int, QUrl, result=bool)
+    def downloadBeanRecording(self, name: str, index: int, destination: QUrl) -> bool:
+        sensor = self.settings.get_sensor(name)
+        request = self._bean_request()
+        if (sensor is None or request is None or not destination.isLocalFile()
+                or not sensor.profile.startswith("beandevice_")
+                or not re.fullmatch(r"[0-9A-Fa-f]{16}", sensor.device_id)
+                or not 0 <= index <= 65535):
+            return False
+        url = request.url()
+        url.setPath("/kai/beandevice/recording")
+        request.setUrl(url)
+        request.setTransferTimeout(125000)
+        token = uuid4().hex
+        reply = self._otac_network.post(request, json.dumps({
+            "device_id": sensor.device_id.upper(), "file_index": index, "token": token,
+        }).encode())
+        progress_request = self._bean_request()
+        assert progress_request is not None
+        url.setQuery("token=" + token)
+        progress_request.setUrl(url)
+        poll = QTimer(reply)
+        poll.setInterval(1000)
+        in_flight = False
+        finished = False
+
+        def poll_progress() -> None:
+            nonlocal in_flight
+            if in_flight:
+                return
+            in_flight = True
+            response = self._otac_network.get(progress_request)
+
+            def read_progress() -> None:
+                nonlocal in_flight
+                in_flight = False
+                if not finished and response.error() == QNetworkReply.NetworkError.NoError:
+                    try:
+                        value = json.loads(bytes(response.readAll().data())).get("percent")
+                        if type(value) is int and 0 <= value < 100:
+                            self.beanDownloadProgress.emit(name, value)
+                    except (ValueError, TypeError, AttributeError):
+                        pass
+                response.deleteLater()
+
+            response.finished.connect(read_progress)
+
+        poll.timeout.connect(poll_progress)
+        poll.start()
+
+        def finish() -> None:
+            nonlocal finished
+            finished = True
+            poll.stop()
+            saved = False
+            status = reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute)
+            data = reply.readAll()
+            error = ""
+            if status != 200 or reply.error() != QNetworkReply.NetworkError.NoError:
+                detail = bytes(data.data()[:300]).decode("utf-8", errors="replace").strip()
+                if detail.startswith("<"):
+                    detail = ""
+                reason = detail or reply.errorString()
+                error = f"HTTP {status}: {reason}" if status is not None else reason
+            elif bytes(reply.rawHeader(b"Content-Type").data()).split(b";", 1)[0].strip().lower() != b"application/octet-stream":
+                error = "Node-RED returned an unexpected recording format."
+            elif not 0 < data.size() <= 32 * 1024 * 1024:
+                error = "The recording was empty or exceeded 32 MiB."
+            else:
+                output = QSaveFile(destination.toLocalFile())
+                if output.open(QIODevice.OpenModeFlag.WriteOnly):
+                    saved = output.write(data.data()) == data.size() and output.commit()
+                if not saved:
+                    error = output.errorString()
+            self.beanDownloadFinished.emit(name, saved, error)
+            reply.deleteLater()
+
+        deadline = QTimer(reply)
+        deadline.setSingleShot(True)
+        deadline.timeout.connect(reply.abort)
+        deadline.start(130000)
+        reply.finished.connect(finish)
+        return True
+
+    @Slot(str, int, str, bool, int, int, str, result=bool)
+    def applyBeanStreaming(self, name: str, rate: int, mode: str, store_forward: bool, cycle: int, duration: int, pattern: str) -> bool:
+        sensor = self.settings.get_sensor(name)
+        if sensor is None or sensor_acquisition_mode(sensor.profile, sensor.trigger_mode) != "streaming":
+            return False
+        if not re.fullmatch(r"[0-9A-Fa-f]{16}", sensor.device_id) or not 1 <= rate <= 65535:
+            return False
+        request = self._bean_request()
+        if request is None:
+            return False
+        reply = self._otac_network.post(request, json.dumps({
+            "device_id": sensor.device_id.upper(), "sample_rate": rate,
+            "mode": mode, "store_forward": store_forward,
+            "cycle": cycle, "duration": duration, "pattern": pattern,
+        }).encode())
+
+        def finish() -> None:
+            status = reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute)
+            outcome = "queued" if status == 202 and reply.error() == QNetworkReply.NetworkError.NoError else "unconfirmed"
+            self.beanCommandFinished.emit(name, outcome)
+            reply.deleteLater()
+
+        reply.finished.connect(finish)
+        return True
+
     @Slot(str, str)
     def saveNodeRedConfig(self, address: str, port: str) -> None:
         self.settings.set_setting("nr_address", address.strip() or "127.0.0.1")
@@ -350,6 +571,17 @@ class BackendController(QObject):
             "lon": location.longitude,
             "sensors": [sensor.name for sensor in self.settings.list_sensors(location.name)],
         }
+
+    @Slot(result="QVariantMap")
+    def getSidebarSearchIndex(self) -> dict[str, str]:
+        terms = {
+            location.name: [location.name, location.description]
+            for location in self.settings.list_locations()
+        }
+        for sensor in self.settings.list_sensors():
+            if sensor.location_name in terms:
+                terms[sensor.location_name].extend((sensor.name, sensor.description))
+        return {name: " ".join(parts).lower() for name, parts in terms.items()}
 
     @Slot(result=list)
     def getLocationNames(self) -> list[str]:
@@ -630,7 +862,8 @@ class BackendController(QObject):
             return False
 
     @Slot(str, result="QVariant")
-    def getSensorData(self, name: str) -> dict[str, object]:
+    @Slot(str, bool, result="QVariant")
+    def getSensorData(self, name: str, include_history: bool = True) -> dict[str, object]:
         sensor = self.settings.get_sensor(name)
         if sensor is None:
             return {}
@@ -651,7 +884,7 @@ class BackendController(QObject):
             "gnss_lat": sensor.latitude,
             "gnss_lon": sensor.longitude,
         }
-        latest = self.telemetry_repository.latest_values(sensor.device_id, 500)
+        latest = self.telemetry_repository.latest_values(sensor.device_id, 500) if include_history else ()
         values = {point.metric_name: point.value for point in latest}
         values.update(self._latest_values.get(name, {}))
         data.update({metric: value for metric, value in values.items() if metric not in data})
@@ -663,7 +896,7 @@ class BackendController(QObject):
             data["pitch"] = data["ACC/PITCH"]
         if "ACC/ROLL" in data:
             data["roll"] = data["ACC/ROLL"]
-        data["active_metrics"] = list(self.telemetry_repository.list_metrics(sensor.device_id))
+        data["active_metrics"] = list(self.telemetry_repository.list_metrics(sensor.device_id)) if include_history else []
         routes = self.settings.get_sensor_streams(sensor)
         streams = [
             {
@@ -676,7 +909,10 @@ class BackendController(QObject):
         ]
         acquisition = sensor_acquisition_mode(sensor.profile, sensor.trigger_mode)
         data["acquisition"] = acquisition
-        data["profile_metrics"] = list(SENSOR_PROFILES[sensor.profile][1]) if acquisition == "streaming" else list(routes)
+        data["profile_metrics"] = (
+            [*SENSOR_PROFILES[sensor.profile][1], *(metric for metric in routes if metric)]
+            if acquisition == "streaming" else list(routes)
+        )
         data["profile"] = sensor.profile
         data["streams"] = streams
         connected_count = sum(1 for stream in streams if stream["connected"])
@@ -713,14 +949,19 @@ class BackendController(QObject):
         return self._export(filepath, None, start_time, end_time)
 
     @Slot(str, str, float, float, result=bool)
+    @Slot(str, str, float, float, str, result=bool)
     def exportSensorData(
         self,
         filepath: str,
         sensor_name: str,
         start_time: float,
         end_time: float,
+        file_format: str = "",
     ) -> bool:
-        return self._export(filepath, self._sensor_to_device.get(sensor_name, sensor_name), start_time, end_time)
+        return self._export(
+            filepath, self._sensor_to_device.get(sensor_name, sensor_name),
+            start_time, end_time, file_format or "csv", include_end_second=bool(file_format),
+        )
 
     @Slot(result="QVariant")
     def getMqttHealth(self) -> list[dict[str, object]]:
@@ -780,6 +1021,8 @@ class BackendController(QObject):
         series_pitch: QXYSeries | None,
         series_roll: QXYSeries | None,
     ) -> None:
+        for metric in _CHART_METRICS:
+            self._render_keys.pop((sensor_name, metric), None)
         if not any((series_x, series_y, series_z, series_pitch, series_roll)):
             self._chart_series.pop(sensor_name, None)
             return
@@ -790,46 +1033,105 @@ class BackendController(QObject):
             "ACC/PITCH": series_pitch,
             "ACC/ROLL": series_roll,
         }
-        buffers = self._buffers.setdefault(
-            sensor_name, {metric: deque(maxlen=20_000) for metric in _CHART_METRICS}
-        )
-        device_id = self._sensor_to_device.get(sensor_name, sensor_name)
-        for metric in _CHART_METRICS:
-            count_probe = self.telemetry_repository.query(
-                HistoricalQuery(
-                    device_id=device_id,
-                    metric_name=metric,
-                    limit=1,
-                    offset=0,
-                    max_points=1,
-                )
-            )
-            page = self.telemetry_repository.query(
-                HistoricalQuery(
-                    device_id=device_id,
-                    metric_name=metric,
-                    limit=2_000,
-                    offset=max(0, count_probe.total_count - 2_000),
-                    max_points=2_000,
-                )
-            )
-            buffers[metric].clear()
-            for point in page.points:
-                if isinstance(point.value, (int, float)) and not isinstance(point.value, bool):
-                    buffers[metric].append((point.timestamp_ns / 1_000_000_000, float(point.value)))
         self._render_charts()
 
-    @Slot(str, str, int, QXYSeries, result="QVariant")
-    def loadHistorySeries(
-        self,
-        sensor_name: str,
-        metric: str,
-        days: int,
-        series: QXYSeries,
-    ) -> dict[str, object]:
+    @Slot(bool)
+    def setHistoryVisible(self, visible: bool) -> None:
+        self._history_visible = visible
+        if not visible:
+            self._history_cancel.set()
+            self._render_charts()
+
+    @Slot(str, result=int)
+    def requestHistoryMetrics(self, sensor_name: str) -> int:
+        self._history_metrics_request += 1
+        request = self._history_metrics_request
+        if self._history_metrics_job is not None:
+            self._history_metrics_job.cancel()
         device_id = self._sensor_to_device.get(sensor_name, sensor_name)
+        self._history_metrics_job = self._history_executor.submit(
+            lambda: list(self.telemetry_repository.list_metrics(device_id))
+        )
+
+        def finished(job: Future[list[str]]) -> None:
+            if job.cancelled():
+                return
+            try:
+                metrics = job.result()
+            except Exception:
+                LOGGER.exception("History metric lookup failed")
+                return
+            self._historyMetricsCompleted.emit(request, metrics)
+
+        self._history_metrics_job.add_done_callback(finished)
+        return request
+
+    @Slot(str, str, int, result=int)
+    def requestHistory(self, sensor_name: str, metrics: str, days: int) -> int:
+        hours = days * 24
+        return self.requestHistoryHours(sensor_name, metrics, hours)
+
+    @Slot(str, str, int, result=int)
+    def requestHistoryHours(self, sensor_name: str, metrics: str, hours: int) -> int:
         end_ns = time.time_ns()
-        start_ns = end_ns - days * 86_400 * 1_000_000_000 if days > 0 else 0
+        start_ns = end_ns - hours * 3600 * 1_000_000_000 if hours > 0 else 0
+        return self._request_history(sensor_name, metrics, start_ns, end_ns if hours > 0 else 0)
+
+    @Slot(str, str, float, float, result=int)
+    def requestHistoryRange(self, sensor_name: str, metrics: str, start: float, end: float) -> int:
+        return self._request_history(
+            sensor_name, metrics, int(start) * 1_000_000_000, int(end) * 1_000_000_000 + 999_999_999
+        )
+
+    def _request_history(self, sensor_name: str, metrics: str, start_ns: int, end_ns: int) -> int:
+        self._history_cancel.set()
+        cancel = self._history_cancel = Event()
+        self._history_request += 1
+        request = self._history_request
+        if self._history_job is not None:
+            self._history_job.cancel()
+        device_id = self._sensor_to_device.get(sensor_name, sensor_name)
+        selected = metrics.split(",")[:3]
+        def load() -> list[dict[str, object]]:
+            reported = 0
+            results = []
+            for index, metric in enumerate(selected):
+                def progress(percent: int) -> None:
+                    nonlocal reported
+                    overall = min(99, (index * 100 + percent) // len(selected))
+                    if overall > reported and not cancel.is_set():
+                        reported = overall
+                        self._historyProgress.emit(request, overall)
+
+                results.append(self._history_series(device_id, metric, start_ns, end_ns, cancel, progress))
+                progress(100)
+            return results
+
+        self._history_job = self._history_executor.submit(load)
+
+        def finished(job: Future[list[dict[str, object]]]) -> None:
+            if job.cancelled():
+                return
+            try:
+                result = job.result()
+            except CancelledError:
+                return
+            except Exception:
+                LOGGER.exception("History query failed")
+                result = [{"empty": True, "error": True, "hint": "History could not be loaded."}]
+            self._historyCompleted.emit(request, result)
+
+        self._history_job.add_done_callback(finished)
+        return request
+
+    @Slot(QXYSeries, "QVariantList")
+    def setHistoryPoints(self, series: QXYSeries, points: list[list[float]]) -> None:
+        series.replace([QPointF(x, y) for x, y in points])
+
+    def _history_series(
+        self, device_id: str, metric: str, start_ns: int, end_ns: int, cancel: Event | None = None,
+        progress: Callable[[int], None] | None = None,
+    ) -> dict[str, object]:
         aliases = {
             "BATTERY": ("BATTERY", "BAT_FUEL_GAUGE_REPSOC"),
             "CELLULAR_RSSI": ("CELLULAR_RSSI", "SIGNAL", "RSSI"),
@@ -837,58 +1139,36 @@ class BackendController(QObject):
         points = []
         actual_metric = metric
         for candidate in aliases:
-            page = self.telemetry_repository.query(
-                HistoricalQuery(
-                    start_timestamp_ns=start_ns,
-                    end_timestamp_ns=end_ns if days > 0 else 0,
-                    device_id=device_id,
-                    metric_name=candidate,
-                    limit=50_000,
-                    max_points=_HISTORY_POINT_LIMIT,
-                )
+            query = HistoricalQuery(
+                start_timestamp_ns=start_ns,
+                end_timestamp_ns=end_ns,
+                device_id=device_id,
+                metric_name=candidate,
+                max_points=_HISTORY_POINT_LIMIT,
             )
-            numeric = [
-                point
-                for point in page.points
-                if isinstance(point.value, (int, float)) and not isinstance(point.value, bool)
-            ]
-            if numeric:
-                points = numeric
+            points = self.telemetry_repository.sample_history(query, cancel, progress)
+            if points:
                 actual_metric = candidate
                 break
         if not points:
-            series.clear()
             return {
                 "count": 0,
                 "metric": metric,
                 "empty": True,
                 "hint": f"No stored numeric points found for {metric}.",
             }
-        first_ns = points[0].timestamp_ns
-        duration_seconds = max(1.0, (points[-1].timestamp_ns - first_ns) / 1_000_000_000)
-        scale_seconds = 86_400.0 if duration_seconds > 172_800 else 3_600.0
-        unit = "days" if scale_seconds == 86_400.0 else "hours"
-        qpoints = [
-            QPointF(
-                ((point.timestamp_ns - first_ns) / 1_000_000_000) / scale_seconds,
-                float(point.value),
-            )
-            for point in points
-        ]
-        series.replace(qpoints)
-        values = [point.y() for point in qpoints]
+        qpoints = [(timestamp / 1_000_000, float(value)) for timestamp, value in points]
+        values = [point[1] for point in qpoints]
         return {
             "count": len(qpoints),
             "metric": actual_metric,
             "requestedMetric": metric,
             "empty": False,
-            "minX": 0.0,
-            "maxX": qpoints[-1].x(),
+            "minX": qpoints[0][0],
+            "maxX": qpoints[-1][0],
+            "points": [list(point) for point in qpoints],
             "minY": min(values),
             "maxY": max(values),
-            "xTitle": f"Time ({unit})",
-            "startLabel": time.strftime("%Y-%m-%d %H:%M", time.localtime(first_ns / 1_000_000_000)),
-            "endLabel": time.strftime("%Y-%m-%d %H:%M", time.localtime(points[-1].timestamp_ns / 1_000_000_000)),
         }
 
     @Slot("QVariant")
@@ -899,24 +1179,47 @@ class BackendController(QObject):
         if not isinstance(raw_points, list):
             return
         indicator_batches: dict[str, dict[str, object]] = defaultdict(dict)
+        seen_devices: set[str] = set()
         for raw in raw_points:
             if not isinstance(raw, dict):
                 continue
             device_id = str(raw.get("device_id", ""))
             sensor_name = self._device_to_sensor.get(device_id, device_id)
+            seen_devices.add(device_id)
             metric = str(raw.get("metric_name", ""))
             value = raw.get("value")
             timestamp_ns = int(raw.get("timestamp_ns", time.time_ns()))
             indicator_batches[sensor_name][metric] = value
             if metric in _CHART_METRICS and isinstance(value, (int, float)) and not isinstance(value, bool):
-                buffers = self._buffers.setdefault(
-                    sensor_name, {name: deque(maxlen=20_000) for name in _CHART_METRICS}
-                )
+                buffers = self._buffers.get(sensor_name)
+                if buffers is None:
+                    buffers = {name: deque(maxlen=20_000) for name in _CHART_METRICS}
+                    self._buffers[sensor_name] = buffers
                 buffers[metric].append((timestamp_ns / 1_000_000_000, float(value)))
+        now = time.monotonic()
         for sensor_name, indicators in indicator_batches.items():
+            if self._sensor_to_device.get(sensor_name) in seen_devices:
+                previous = self._sensor_activity.get(sensor_name)
+                self._sensor_activity[sensor_name] = (now, True)
+                if previous is not None and not previous[1]:
+                    self.sensorConnectionChanged.emit(sensor_name, True)
             indicators["device_id"] = sensor_name
             self._decorate_indicators(indicators)
             self._latest_values[sensor_name].update(indicators)
+            self._pending_indicators[sensor_name].update(indicators)
+
+    @Slot()
+    def _check_sensor_activity(self) -> None:
+        now = time.monotonic()
+        for name, (last_seen, online) in self._sensor_activity.items():
+            if online and now - last_seen >= 15:
+                self._sensor_activity[name] = (last_seen, False)
+                self.sensorConnectionChanged.emit(name, False)
+
+    @Slot()
+    def _flush_indicators(self) -> None:
+        pending, self._pending_indicators = self._pending_indicators, defaultdict(dict)
+        for indicators in pending.values():
             self.indicatorsUpdated.emit(indicators)
 
     @Slot("QVariant")
@@ -925,37 +1228,51 @@ class BackendController(QObject):
 
     @Slot()
     def _render_charts(self) -> None:
-        if self._charts_paused:
+        if self._charts_paused or self._history_visible:
             return
+        now = time.time()
         for sensor_name, series_map in tuple(self._chart_series.items()):
             buffers = self._buffers.get(sensor_name)
             if not buffers:
                 continue
+            # A shared, stable origin keeps channels aligned even if one starts later.
+            newest = max((buffer[-1][0] for buffer in buffers.values() if buffer), default=now)
+            window_end = max(now, newest)
+            origin = window_end - _LIVE_WINDOW_SECONDS
             for metric, series in series_map.items():
                 if series is None:
                     continue
-                points = list(buffers[metric])
-                if not points:
-                    series.clear()
+                key = (sensor_name, metric)
+                buffer = buffers[metric]
+                if not buffer:
+                    if self._render_keys.pop(key, None) is not None:
+                        series.clear()
                     continue
-                latest_timestamp = points[-1][0]
-                cutoff = latest_timestamp - _LIVE_WINDOW_SECONDS
-                points = [point for point in points if point[0] >= cutoff]
-                if len(points) > _LIVE_POINT_LIMIT:
-                    stride = max(1, len(points) // _LIVE_POINT_LIMIT)
-                    points = points[::stride]
-                    if points[-1] != buffers[metric][-1]:
-                        points.append(buffers[metric][-1])
-                first_timestamp = points[0][0]
-                series.replace([QPointF(timestamp - first_timestamp, value) for timestamp, value in points])
+                signature = (*buffer[-1], len(buffer), origin)
+                if self._render_keys.get(key) == signature:
+                    continue
+                self._render_keys[key] = signature
+                points = [point for point in buffer if point[0] >= origin]
+                if not points:
+                    if series.count():
+                        series.clear()
+                    continue
+                if any(left[0] > right[0] for left, right in pairwise(points)):
+                    points.sort(key=lambda point: point[0])
+                points = _live_plot_points(points)
+                series.replace([QPointF(timestamp - origin, value) for timestamp, value in points])
 
     def _refresh_sensor_mapping(self) -> None:
+        previous = self._sensor_to_device.copy()
         self._device_to_sensor.clear()
         self._sensor_to_device.clear()
         for sensor in self.settings.list_sensors():
             self._device_to_sensor[sensor.device_id] = sensor.name
             self._device_to_sensor[sensor.name] = sensor.name
             self._sensor_to_device[sensor.name] = sensor.device_id
+        for name in tuple(self._sensor_activity):
+            if self._sensor_to_device.get(name) != previous.get(name):
+                del self._sensor_activity[name]
 
     def _find_broker_id(self, host: str, port: int, username: str) -> int | None:
         for broker in self.settings.list_brokers():
@@ -968,28 +1285,57 @@ class BackendController(QObject):
             self.getMqttBrokers()
         return self._broker_ids[index] if 0 <= index < len(self._broker_ids) else None
 
-    def _export(self, filepath: str, device_id: str | None, start_time: float, end_time: float) -> bool:
-        try:
-            self.query_service.export_csv(
-                Path(self._normalise_path(filepath)),
-                HistoricalQuery(
-                    start_timestamp_ns=int(start_time * 1_000_000_000) if start_time > 0 else 0,
-                    end_timestamp_ns=int(end_time * 1_000_000_000) if end_time > 0 else 0,
-                    device_id=device_id,
-                    limit=50_000,
-                    max_points=50_000,
-                ),
-            )
-            return True
-        except Exception as exc:
-            self.notificationRaised.emit("Export error", str(exc))
+    def _export(
+        self, filepath: str, device_id: str | None, start_time: float, end_time: float,
+        file_format: str = "csv", *, include_end_second: bool = False,
+    ) -> bool:
+        if self._stop_export.is_set() or self._export_job is not None or file_format not in {"csv", "xlsx"}:
             return False
+        local_path = self._normalise_path(filepath)
+        if not local_path or not Path(local_path).name:
+            return False
+        path = Path(local_path)
+        suffix = "." + file_format
+        if path.suffix.lower() != suffix:
+            path = path.with_name(path.name + suffix)
+        start_ns = int(start_time * 1_000_000_000) if start_time > 0 else 0
+        end_ns = int(end_time * 1_000_000_000) if end_time > 0 else 0
+        if include_end_second:
+            start_ns = int(start_time) * 1_000_000_000
+            end_ns = int(end_time) * 1_000_000_000 + 999_999_999
+        query = HistoricalQuery(
+            start_timestamp_ns=start_ns,
+            end_timestamp_ns=end_ns,
+            device_id=device_id,
+        )
+        self.csvExportStarted.emit()
+        writer = self.query_service.export_xlsx if file_format == "xlsx" else self.query_service.export_csv
+        self._export_job = self._export_executor.submit(writer, path, query, self._stop_export)
+        self._export_job.add_done_callback(self._publish_export_result)
+        return True
+
+    def _publish_export_result(self, job: Future[int | None]) -> None:
+        if self._stop_export.is_set():
+            return
+        try:
+            job.result()
+        except Exception as exc:
+            self.csvExportFinished.emit(str(exc) or type(exc).__name__)
+        else:
+            self.csvExportFinished.emit("")
+
+    @Slot(str)
+    def _finish_export(self, _error: str) -> None:
+        self._export_job = None
 
     @staticmethod
     def _decorate_indicators(indicators: dict[str, object]) -> None:
-        if "CELLULAR_RSSI" in indicators:
+        rssi_metric = next(
+            (key for key in ("CELLULAR_RSSI", "SIGNAL", "RSSI", "cellular_rssi") if key in indicators), None
+        )
+        if rssi_metric and not (indicators.get("SIGNAL_STRENGTH_LABEL") or indicators.get("signal_strength_label")):
             try:
-                rssi = float(indicators["CELLULAR_RSSI"])
+                rssi = float(indicators[rssi_metric])
                 indicators["SIGNAL_STRENGTH_LABEL"] = (
                     "excellent" if rssi >= -65 else "good" if rssi >= -75 else "fair" if rssi >= -85 else "bad"
                 )
@@ -1012,7 +1358,6 @@ class BackendController(QObject):
                     indicators[target] = "ok" if int(indicators[source]) == 1 else "down"
                 except (TypeError, ValueError):
                     indicators[target] = "unknown"
-        indicators["DATA_LATENCY_SECONDS"] = 0.0
         indicators["DEVICE_DATA_AGE_SECONDS"] = 0.0
         try:
             if float(indicators.get("PWR_5V_POE_V", 0.0)) > 1.0:

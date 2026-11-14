@@ -10,6 +10,7 @@ Item {
     property string yAxisTitle: ""
     property real defaultYMin: -2
     property real defaultYMax: 2
+    property real frozenYLimit: Math.max(Math.abs(defaultYMin), Math.abs(defaultYMax))
     property real initialXMax: 1
     property real minimumXSpan: 0.0005
     property var seriesDefinitions: []
@@ -27,6 +28,8 @@ Item {
             series.color = definition.color
             series.width = definition.width || 2
             series.useOpenGL = false
+            series.pointsReplaced.connect(queueLiveFit)
+            series.pointsRemoved.connect(queueLiveFit)
             created.push(series)
         }
         seriesObjects = created
@@ -38,8 +41,10 @@ Item {
 
     function setSeriesVisible(index, visible) {
         const series = seriesAt(index)
-        if (series)
+        if (series) {
             series.visible = visible
+            queueLiveFit()
+        }
     }
 
     function clearSeries() {
@@ -54,18 +59,66 @@ Item {
         return initialXMax
     }
 
+    function setFrozenYRange(lower, upper) {
+        const span = Math.max(0.0001, Math.min(2 * frozenYLimit, upper - lower))
+        const bottom = Math.max(-frozenYLimit, Math.min(frozenYLimit - span, lower))
+        // Set the far edge first when moving to a disjoint range.
+        if (bottom >= axisY.max) {
+            axisY.max = bottom + span
+            axisY.min = bottom
+        } else {
+            axisY.min = bottom
+            axisY.max = bottom + span
+        }
+    }
+
+    function queueLiveFit() {
+        if (!frozen)
+            liveFitTimer.start()
+    }
+
+    Timer {
+        id: liveFitTimer
+        interval: 50
+        onTriggered: if (!root.frozen) root.fitYRange()
+    }
+
+    function fitYRange() {
+        let lower = Infinity
+        let upper = -Infinity
+        for (const series of seriesObjects) {
+            if (!series.visible)
+                continue
+            for (let index = 0; index < series.count; ++index) {
+                const value = series.at(index).y
+                if (Number.isFinite(value)) {
+                    lower = Math.min(lower, value)
+                    upper = Math.max(upper, value)
+                }
+            }
+        }
+
+        if (lower > upper) {
+            setFrozenYRange(frozen ? -frozenYLimit : defaultYMin,
+                            frozen ? frozenYLimit : defaultYMax)
+            return
+        }
+
+        lower = Math.max(-frozenYLimit, Math.min(frozenYLimit, lower))
+        upper = Math.max(-frozenYLimit, Math.min(frozenYLimit, upper))
+        const padding = Math.max((upper - lower) * 0.08, frozenYLimit / 1000)
+        setFrozenYRange(lower - padding, upper + padding)
+    }
+
     function resetView() {
         axisX.min = 0
         axisX.max = frozen ? dataMaximum() : initialXMax
-        axisY.min = defaultYMin
-        axisY.max = defaultYMax
+        fitYRange()
     }
 
     function adjustFrozenRange() {
-        if (!frozen)
-            return
-        axisX.min = 0
-        axisX.max = dataMaximum()
+        if (frozen)
+            resetView()
     }
 
     Component.onCompleted: initializeSeries()
@@ -175,8 +228,7 @@ Item {
 
                     const ySpan = axisY.max - axisY.min
                     const yShift = ((mouse.y - lastY) / plot.height) * ySpan
-                    axisY.min += yShift
-                    axisY.max += yShift
+                    root.setFrozenYRange(axisY.min + yShift, axisY.max + yShift)
                     lastX = mouse.x
                     lastY = mouse.y
                 } else if (zoomRect.visible) {
@@ -216,8 +268,7 @@ Item {
                 const range = clampedXRange(newMin, newMax)
                 axisX.min = range[0]
                 axisX.max = range[1]
-                axisY.min = oldYMin + oldYSpan * lower
-                axisY.max = oldYMin + oldYSpan * upper
+                root.setFrozenYRange(oldYMin + oldYSpan * lower, oldYMin + oldYSpan * upper)
             }
 
             onCanceled: zoomRect.visible = false
@@ -227,7 +278,7 @@ Item {
             }
 
             onWheel: wheel => {
-                wheel.accepted = true
+                wheel.accepted = root.frozen
                 if (!root.frozen)
                     return
                 const plot = chart.plotArea
@@ -245,11 +296,11 @@ Item {
                 axisX.max = range[1]
 
                 const oldYSpan = axisY.max - axisY.min
-                const newYSpan = Math.max(0.0001, oldYSpan * factor)
+                const newYSpan = Math.max(0.0001, Math.min(2 * root.frozenYLimit, oldYSpan * factor))
                 const yRatio = Math.max(0, Math.min(1, 1 - (wheel.y - plot.y) / plot.height))
                 const yAtPointer = axisY.min + oldYSpan * yRatio
-                axisY.min = yAtPointer - newYSpan * yRatio
-                axisY.max = axisY.min + newYSpan
+                const lower = yAtPointer - newYSpan * yRatio
+                root.setFrozenYRange(lower, lower + newYSpan)
             }
         }
     }

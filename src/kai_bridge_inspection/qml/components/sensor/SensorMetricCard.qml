@@ -10,6 +10,8 @@ Rectangle {
     property string labelText: ""
     property string valueText: "--"
     property string captionText: ""
+    property color valueColor: Theme.text
+    property color iconColor: Theme.accent
     property string iconText: ""
     property bool showAction: false
     property string actionTip: ""
@@ -29,7 +31,7 @@ Rectangle {
         LucideIcon {
             icon: card.iconText
             size: Theme.iconSize
-            color: Theme.accent
+            color: card.iconColor
         }
 
         ColumnLayout {
@@ -54,7 +56,7 @@ Rectangle {
 
         Text {
             text: card.valueText
-            color: Theme.text
+            color: card.valueColor
             font.pixelSize: card.captionText.length > 0 ? 17 : 19
             font.bold: true
             horizontalAlignment: Text.AlignRight

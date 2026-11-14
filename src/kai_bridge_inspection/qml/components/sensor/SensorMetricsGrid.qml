@@ -17,6 +17,11 @@ GridLayout {
     property string lostSamples: "--"
     property string latency: "--"
 
+    readonly property string signalState: signalLabel.trim().toLowerCase()
+    readonly property color signalColor: ["lost", "bad", "down", "offline"].includes(signalState) ? Theme.danger
+        : ["excellent", "good"].includes(signalState) ? Theme.success
+        : ["ok", "fair", "weak"].includes(signalState) ? Theme.warning : Theme.subText
+
     signal batteryHistoryRequested()
 
     Layout.fillWidth: true
@@ -47,6 +52,8 @@ GridLayout {
         valueText: grid.signalLabel
         captionText: grid.rssi
         iconText: Icons.signal
+        iconColor: grid.signalColor
+        valueColor: grid.signalColor
     }
     SensorMetricCard {
         labelText: I18n.t("sensor.charger", "Charger")

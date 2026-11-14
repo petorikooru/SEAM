@@ -21,24 +21,14 @@ Rectangle {
 
     color: Theme.sidebarBg
 
-    function locationMatches(locationKey) {
-        // Register the catalog revision as a binding dependency. This matters
-        // when a sensor changes but the top-level location-name list does not.
+    readonly property string searchTerm: searchText.trim().toLowerCase()
+    readonly property var searchIndex: {
         const revision = dataRevision
-        if (searchText.trim().length === 0)
-            return true
-        const data = appBackend ? appBackend.getLocationData(locationKey) : ({})
-        const term = searchText.toLowerCase().trim()
-        const locationText = ((data.name || locationKey) + " " + (data.description || "")).toLowerCase()
-        if (locationText.indexOf(term) >= 0)
-            return true
-        const sensors = data.sensors || []
-        for (let i = 0; i < sensors.length; ++i) {
-            const sensor = appBackend ? appBackend.getSensorData(sensors[i]) : ({})
-            if (((sensor.name || sensors[i]) + " " + (sensor.description || "")).toLowerCase().indexOf(term) >= 0)
-                return true
-        }
-        return false
+        return appBackend ? appBackend.getSidebarSearchIndex() : ({})
+    }
+
+    function locationMatches(locationKey) {
+        return !searchTerm || (searchIndex[locationKey] || "").includes(searchTerm)
     }
 
     component StyledMenu: Menu {
@@ -455,15 +445,8 @@ Rectangle {
 
                                 NavButton {
                                     required property var modelData
-                                    property var sensorData: {
-                                        const revision = sidebarRoot.dataRevision
-                                        return sidebarRoot.appBackend
-                                                ? sidebarRoot.appBackend.getSensorData(String(modelData))
-                                                : ({})
-                                    }
-
                                     iconText: Icons.sensor
-                                    labelText: sensorData.name || String(modelData)
+                                    labelText: String(modelData)
                                     tooltipText: (locationDelegate.locationData.name || locationDelegate.locationKey) + " / " + labelText
                                     indent: sidebarRoot.collapsed ? 0 : 14
                                     active: sidebarRoot.activePage === "sensor_" + String(modelData)

@@ -12,6 +12,7 @@ license = {text = "Proprietary - supplied project assets retain their original o
 authors = [{name = "Project Team"}]
 dependencies = [
     "PySide6>=6.8,<7",
+    "XlsxWriter>=3.2,<4",
 ]
 
 [project.optional-dependencies]

@@ -16,6 +16,10 @@ Rectangle {
     property var seriesModel: []
     property bool frozen: false
     property bool panMode: true
+    property int staleSeconds: 0
+    property bool hasLiveSamples: true
+    readonly property bool livePlotAvailable: hasLiveSamples && staleSeconds < 15
+    signal historyRequested()
 
     signal freezeToggled()
     signal panModeToggled()
@@ -94,9 +98,10 @@ Rectangle {
                 }
 
                 Flow {
-                    Layout.fillWidth: true
+                    Layout.fillWidth: false
+                    Layout.preferredWidth: Math.min(implicitWidth, headerGrid.width)
                     Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
-                    spacing: 7
+                    spacing: 10
 
                     Text {
                         visible: panel.width >= 620
@@ -105,6 +110,7 @@ Rectangle {
                         font.pixelSize: 9
                         font.bold: true
                         font.letterSpacing: 0.6
+                        topPadding: Math.max(0, (28 - contentHeight) / 2)
                     }
 
                     Repeater {
@@ -159,16 +165,62 @@ Rectangle {
             text: panel.frozen ? I18n.t("sensor.chartInteractive", "Interactive navigation enabled") : I18n.t("sensor.chartLive", "Live follow mode")
             color: panel.frozen ? Theme.accent : Theme.mutedText
             font.pixelSize: 10
-            visible: panel.width >= 420
+            visible: panel.livePlotAvailable && panel.width >= 420
             horizontalAlignment: Text.AlignRight
         }
 
         Item {
-            id: chartHost
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.minimumHeight: 360
-            clip: true
+
+            Item {
+                id: chartHost
+                anchors.fill: parent
+                visible: panel.livePlotAvailable
+                enabled: visible
+                clip: true
+            }
+
+            Rectangle {
+                anchors.centerIn: parent
+                width: Math.min(parent.width, 520)
+                height: bannerContent.implicitHeight + 32
+                visible: !panel.livePlotAvailable
+                radius: 10
+                color: Theme.controlBg
+                border.color: Theme.border
+
+                GridLayout {
+                    id: bannerContent
+                    anchors.fill: parent
+                    anchors.margins: 16
+                    columns: width >= 400 ? 2 : 1
+                    columnSpacing: 16
+                    rowSpacing: 12
+
+                    Text {
+                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignVCenter
+                        wrapMode: Text.WordWrap
+                        font.bold: true
+                        color: panel.staleSeconds >= 60 ? Theme.danger
+                             : panel.staleSeconds >= 15 ? Theme.warning : Theme.subText
+                        text: panel.staleSeconds >= 15
+                            ? I18n.format("sensor.motionStale", {"seconds": panel.staleSeconds},
+                                          "No live samples for {seconds} s")
+                            : I18n.t("sensor.waitingForMotion", "Waiting for live samples")
+                    }
+
+                    WinButton {
+                        visible: panel.staleSeconds >= 60
+                        Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                        iconName: Icons.chart
+                        text: I18n.t("sensor.viewMotionHistory", "View motion history")
+                        onClicked: panel.historyRequested()
+                    }
+                }
+            }
         }
     }
 }

@@ -9,16 +9,21 @@ CheckBox {
     property color seriesColor: Theme.accent
 
     implicitHeight: 28
+    implicitWidth: Math.max(36, implicitContentWidth + leftPadding + rightPadding)
+    padding: 0
+    hoverEnabled: true
     spacing: 6
     font.pixelSize: 12
 
     indicator: Rectangle {
         implicitWidth: 18
         implicitHeight: 18
+        y: (control.height - height) / 2
         radius: 4
         color: control.checked ? control.seriesColor : "transparent"
-        border.color: control.checked ? control.seriesColor : Theme.borderLight
-        border.width: 1
+        border.color: control.visualFocus ? Theme.text
+                      : control.checked || control.hovered ? control.seriesColor : Theme.borderLight
+        border.width: control.visualFocus ? 2 : 1
 
         LucideIcon {
             anchors.centerIn: parent

@@ -9,9 +9,10 @@ BACKEND = PROJECT_ROOT / "src" / "kai_bridge_inspection" / "controllers" / "back
 def test_location_preserves_metrics_from_partial_telemetry_batches() -> None:
     source = (QML / "pages" / "Location.qml").read_text(encoding="utf-8")
     assert "page.updateLiveMetrics(data, false)" in source
-    assert "updateLiveMetrics(selectedSensorData, true)" in source
+    assert "getSensorData(selectedSensorName, false)" in source
+    assert "updateLiveMetrics(selectedSensorData, true)" not in source
     assert "BAT_FUEL_GAUGE_REPSOC" in source
-    assert "selectedSensorData[key] = data[key]" in source
+    assert "page.readingTimes[field] >= 15000" in source
 
 
 def test_location_sensor_charts_are_content_sized_and_can_shrink() -> None:

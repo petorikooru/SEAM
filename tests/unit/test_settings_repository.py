@@ -176,9 +176,27 @@ def test_metric_routes_migrate_and_update_atomically(tmp_path: Path) -> None:
         "bridge/nemo": ("NEMO", frozenset()),
         "BEAN/STREAMING": ("BEAN", frozenset({"ACC/X", "ACC/Y", "ACC/Z", "ACC/ROLL", "ACC/PITCH"})),
     }
-    repository.save_sensor(replace(saved_streaming, trigger_mode="periodic"),
-                           profile="beandevice_inclinometer", routes=routes)
+    auxiliary = {"ACC/TEMPERATURE": "/bridge/temp/", "CELLULAR_RSSI": "bridge/rssi"}
+    shared = {"": "BEAN/STREAMING", **auxiliary}
+    repository.save_sensor(saved_streaming, routes=shared)
+    repository.save_sensor(saved_streaming)
+    assert repository.get_sensor_streams(saved_streaming) == {
+        "": "BEAN/STREAMING", "ACC/TEMPERATURE": "bridge/temp", "CELLULAR_RSSI": "bridge/rssi"
+    }
+    bindings = repository.list_node_red_sensor_streams()
+    assert bindings["bridge/temp"] == ("BEAN", frozenset({"ACC/TEMPERATURE"}))
+    assert bindings["bridge/rssi"] == ("BEAN", frozenset({"CELLULAR_RSSI"}))
+    assert "ACC/TEMPERATURE" not in bindings["BEAN/STREAMING"][1]
+    with pytest.raises(ConfigurationError, match="Motion metrics"):
+        repository.save_sensor(saved_streaming, routes={**shared, "ACC/X": "bridge/x"})
+    with pytest.raises(ConfigurationError, match="different WebSocket path"):
+        repository.save_sensor(saved_streaming, routes={**shared, "BATTERY": "BEAN/STREAMING"})
+    assert repository.list_node_red_sensor_streams() == bindings
+
+    periodic = replace(saved_streaming, trigger_mode="periodic", profile="beandevice_inclinometer")
+    repository.save_sensor(periodic, profile=periodic.profile, routes={**routes, **auxiliary})
     assert "BEAN/STREAMING" not in repository.list_node_red_sensor_streams()
+    assert repository.list_node_red_sensor_streams()["bridge/rssi"] == bindings["bridge/rssi"]
 
     repository.delete_sensor("Renamed")
     assert repository.list_node_red_sensor_streams() == {"bridge/nemo": ("NEMO", frozenset())}

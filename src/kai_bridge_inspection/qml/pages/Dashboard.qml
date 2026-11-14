@@ -23,6 +23,7 @@ Page {
 
     function loadLocations() {
         const names = appBackend ? appBackend.getLocationNames() : []
+        const index = appBackend ? appBackend.getSidebarSearchIndex() : ({})
         let nextLocations = []
         let sensorTotal = 0
         for (let i = 0; i < names.length; ++i) {
@@ -35,11 +36,13 @@ Page {
                 "description": raw.description || "No location description has been provided.",
                 "lat": Number(raw.lat || 0),
                 "lon": Number(raw.lon || 0),
-                "sensors": sensors
+                "sensors": sensors,
+                "searchText": index[names[i]] || names[i].toLowerCase()
             })
         }
         locations = nextLocations
         totalSensors = sensorTotal
+        searchTimer.stop()
         filterLocations()
     }
 
@@ -49,18 +52,7 @@ Page {
             filteredLocations = locations
             return
         }
-        let result = []
-        for (let i = 0; i < locations.length; ++i) {
-            const location = locations[i]
-            let haystack = (location.name + " " + location.description).toLowerCase()
-            for (let j = 0; j < location.sensors.length; ++j) {
-                const sensor = appBackend ? appBackend.getSensorData(location.sensors[j]) : ({})
-                haystack += " " + (sensor.name || location.sensors[j]) + " " + (sensor.description || "")
-            }
-            if (haystack.toLowerCase().indexOf(term) >= 0)
-                result.push(location)
-        }
-        filteredLocations = result
+        filteredLocations = locations.filter(location => location.searchText.includes(term))
     }
 
     function openLocation(locationKey) {
@@ -85,6 +77,12 @@ Page {
             if (typeof root !== "undefined" && root.refreshSidebar)
                 root.refreshSidebar()
         }
+    }
+
+    Timer {
+        id: searchTimer
+        interval: 120
+        onTriggered: page.filterLocations()
     }
 
     Component.onCompleted: loadLocations()
@@ -120,27 +118,33 @@ Page {
             border.width: control.accent ? 0 : 1
         }
 
-        contentItem: Row {
-            anchors.centerIn: parent
-            spacing: control.iconText.length > 0 ? 8 : 0
-            LucideIcon {
-                visible: control.iconText.length > 0
-                icon: control.iconText
-                size: Theme.iconSizeSmall
-                color: !control.enabled ? Theme.disabledText :
-                       control.accent ? Theme.accentText :
-                       control.danger ? Theme.danger : Theme.text
-                anchors.verticalCenter: parent.verticalCenter
-            }
-            Text {
-                text: control.text
-                color: !control.enabled ? Theme.disabledText :
-                       control.accent ? Theme.accentText :
-                       control.danger ? Theme.danger : Theme.text
-                font.family: Theme.fontFamily
-                font.pixelSize: 12
-                font.bold: control.accent
-                anchors.verticalCenter: parent.verticalCenter
+        contentItem: Item {
+            implicitWidth: buttonContent.implicitWidth
+            implicitHeight: buttonContent.implicitHeight
+            Row {
+                id: buttonContent
+                anchors.centerIn: parent
+                spacing: 8
+                LucideIcon {
+                    visible: control.iconText.length > 0
+                    icon: control.iconText
+                    size: Theme.iconSizeSmall
+                    color: !control.enabled ? Theme.disabledText :
+                           control.accent ? Theme.accentText :
+                           control.danger ? Theme.danger : Theme.text
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+                Text {
+                    visible: control.text.length > 0
+                    text: control.text
+                    color: !control.enabled ? Theme.disabledText :
+                           control.accent ? Theme.accentText :
+                           control.danger ? Theme.danger : Theme.text
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 12
+                    font.bold: control.accent
+                    anchors.verticalCenter: parent.verticalCenter
+                }
             }
         }
     }
@@ -271,6 +275,7 @@ Page {
                     text: ""
                     iconText: Icons.trash
                     danger: true
+                    Accessible.name: I18n.t("nav.deleteLocation", "Delete location")
                     Layout.preferredWidth: 38
                     onClicked: page.deleteLocation(card.location.key)
                     ToolTip.visible: hovered
@@ -419,7 +424,7 @@ Page {
                         font.pixelSize: 12
                         leftPadding: 38
                         rightPadding: 12
-                        onTextChanged: page.filterLocations()
+                        onTextChanged: searchTimer.restart()
 
                         background: Rectangle {
                             radius: 9

@@ -15,6 +15,36 @@ Page {
     property bool loading: false
     property string loadState: webView.url.toString() === "" ? I18n.t("common.notConnected", "Not connected") : I18n.t("common.ready", "Ready")
     property string lastError: ""
+    property string connectedEndpoint: ""
+    property bool checking: false
+
+    Timer {
+        interval: 5000
+        repeat: true
+        running: page.connectedEndpoint !== ""
+        onTriggered: {
+            if (page.loading || page.checking)
+                return
+            const endpoint = page.connectedEndpoint
+            const probe = new XMLHttpRequest()
+            page.checking = true
+            probe.onreadystatechange = function() {
+                if (probe.readyState !== XMLHttpRequest.DONE)
+                    return
+                page.checking = false
+                if (page.connectedEndpoint !== endpoint || page.loading)
+                    return
+                if (probe.status === 0 || probe.status >= 500) {
+                    page.connectedEndpoint = ""
+                    page.loadState = I18n.t("app.unavailable", "Unavailable")
+                    page.lastError = I18n.t("nodeRed.loadError", "Node-RED could not be loaded. Check the host, port, and service status.")
+                    configPanel.visible = true
+                }
+            }
+            probe.open("HEAD", endpoint)
+            probe.send()
+        }
+    }
 
     background: Rectangle { color: Theme.surface }
 
@@ -41,7 +71,12 @@ Page {
             appBackend.saveNodeRedConfig(address, port)
 
         loadState = I18n.t("common.connecting", "Connecting")
-        webView.url = editorUrl(address, port)
+        const endpoint = editorUrl(address, port)
+        connectedEndpoint = ""
+        if (webView.url.toString().replace(/\/$/, "") === endpoint)
+            webView.reload()
+        else
+            webView.url = endpoint
         configPanel.visible = false
     }
 
@@ -156,9 +191,11 @@ Page {
                     if (loadRequest.status === WebEngineView.LoadSucceededStatus) {
                         page.loadState = I18n.t("common.connected", "Connected")
                         page.lastError = ""
+                        page.connectedEndpoint = page.editorUrl(page.appBackend ? page.appBackend.nodeRedAddress : page.normalizedAddress(addressInput.text), page.appBackend ? page.appBackend.nodeRedPort : portInput.text)
                     } else if (loadRequest.status === WebEngineView.LoadFailedStatus) {
                         page.loadState = I18n.t("app.unavailable", "Unavailable")
                         page.lastError = loadRequest.errorString || I18n.t("nodeRed.loadError", "Node-RED could not be loaded. Check the host, port, and service status.")
+                        page.connectedEndpoint = ""
                         configPanel.visible = true
                     }
                 }
@@ -217,7 +254,8 @@ Page {
                         }
                         WinButton {
                             visible: webView.url.toString() !== ""
-                            text: Icons.cancel
+                            iconName: Icons.cancel
+                            Accessible.name: I18n.t("common.close", "Close")
                             isQuiet: true
                             Layout.preferredWidth: 36
                             Layout.preferredHeight: 36
@@ -256,56 +294,6 @@ Page {
                             inputMethodHints: Qt.ImhDigitsOnly
                             validator: IntValidator { bottom: 1; top: 65535 }
                             onAccepted: page.connectToNodeRed()
-                        }
-                    }
-
-                    Text {
-                        text: I18n.t("nodeRed.sensorEndpoints", "Per-sensor WebSocket routing")
-                        color: Theme.text
-                        font.pixelSize: 13
-                        font.bold: true
-                        Layout.fillWidth: true
-                    }
-
-                    Rectangle {
-                        Layout.fillWidth: true
-                        implicitHeight: sensorRoutingHelp.implicitHeight + 24
-                        radius: 10
-                        color: Theme.controlBg
-                        border.color: Theme.border
-                        Text {
-                            id: sensorRoutingHelp
-                            anchors.fill: parent
-                            anchors.margins: 12
-                            text: I18n.t("nodeRed.sensorEndpointHelp", "NemoSense uses one path. BeanDevice and Custom use a path per metric. Match every path to Node-RED.")
-                            color: Theme.subText
-                            font.pixelSize: 12
-                            wrapMode: Text.WordWrap
-                        }
-                    }
-
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 82
-                        radius: 10
-                        color: Theme.controlBg
-                        border.color: Theme.border
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.margins: 12
-                            spacing: 10
-                            LucideIcon {
-                                icon: Icons.nodeRed
-                                color: Theme.info
-                                size: 17
-                            }
-                            Text {
-                                text: I18n.t("nodeRed.example", "Editor: http://127.0.0.1:1880\nSensor stream: ws://127.0.0.1:1880/kai/sensors/nemosense-01")
-                                color: Theme.subText
-                                font.pixelSize: 12
-                                lineHeight: 1.25
-                                Layout.fillWidth: true
-                            }
                         }
                     }
 

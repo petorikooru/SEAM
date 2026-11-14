@@ -414,10 +414,10 @@ Item {
         id: exportFileDialog
         title: I18n.t("settings.saveCsv", "Save Exported CSV")
         fileMode: FileDialog.SaveFile
+        defaultSuffix: "csv"
         nameFilters: ["CSV files (*.csv)"]
         onAccepted: {
-            let filepath = selectedFile.toString().replace("file://", "")
-            if (Qt.platform.os === "windows" && filepath.startsWith("/")) filepath = filepath.substring(1);
+            const filepath = exportFileDialog.file.toString()
 
             let now = Date.now() / 1000
             let startTime = 0

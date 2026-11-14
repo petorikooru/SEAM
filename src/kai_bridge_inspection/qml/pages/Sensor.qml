@@ -27,14 +27,50 @@ Item {
     property string liveBattery: "-- %"
     property string liveSampleRate: "-- Hz"
     property string liveRssi: "-- dBm"
-    property string liveSignalLabel: "lost"
-    property string liveChargerStatus: "unknown"
+    property string liveSignalLabel: "Not Available"
+    property string liveChargerStatus: "Not Available"
     property string livePowerSource: "--"
-    property string liveMqttDeviceStatus: "unknown"
-    property string liveNtpStatus: "unknown"
+    property string liveMqttDeviceStatus: "Not Available"
+    property string liveNtpStatus: "Not Available"
     property string liveLostSamples: "--"
     property string liveDataLatency: "--"
-    property string liveDeviceType: "Dewesoft Nemosense"
+    property string liveDeviceType: "Sensor"
+
+    readonly property int liveExpiryMs: 15000
+    property var liveReadings: Object.create(null)
+
+    function expireReadings(now) {
+        let expired = false
+        const current = Object.create(null)
+        for (const key of Object.keys(liveReadings)) {
+            const reading = liveReadings[key]
+            if (now - reading.receivedAt >= liveExpiryMs) {
+                delete liveReadings[key]
+                expired = true
+            } else {
+                current[key] = reading.value
+            }
+        }
+        if (expired) {
+            resetLiveMetrics()
+            updateLiveMetrics(current, true)
+        }
+    }
+
+    property double monitoringStartedAt: Date.now()
+    property double accelReceivedAt: 0
+    property double inclineReceivedAt: 0
+    property double freshnessNow: Date.now()
+
+    Timer {
+        interval: 1000
+        running: page.visible
+        repeat: true
+        onTriggered: {
+            page.freshnessNow = Date.now()
+            page.expireReadings(page.freshnessNow)
+        }
+    }
 
     property bool inclPanMode: true
     property bool accelPanMode: true
@@ -70,6 +106,14 @@ Item {
             if (data["device_id"] !== page.sensorName)
                 return
 
+            const receivedAt = Date.now()
+            if (["ACC/X", "ACC/Y", "ACC/Z"].some(key => typeof data[key] === "number" && isFinite(data[key])))
+                page.accelReceivedAt = receivedAt
+            if (["ACC/ROLL", "ACC/PITCH"].some(key => typeof data[key] === "number" && isFinite(data[key])))
+                page.inclineReceivedAt = receivedAt
+            page.freshnessNow = receivedAt
+            for (const key of Object.keys(data))
+                page.liveReadings[key] = {value: data[key], receivedAt: receivedAt}
             page.updateLiveMetrics(data, false)
 
             let mapNeedsUpdate = false
@@ -87,6 +131,7 @@ Item {
 
     Component.onDestruction: {
         if (typeof backend !== "undefined") {
+            backend.setHistoryVisible(false)
             backend.setLiveChartsPaused(false)
             if (page.sensorName !== "")
                 backend.registerLiveCharts(page.sensorName, null, null, null, null, null)
@@ -113,17 +158,18 @@ Item {
         liveBattery = "-- %"
         liveSampleRate = "-- Hz"
         liveRssi = "-- dBm"
-        liveSignalLabel = "lost"
-        liveChargerStatus = "unknown"
+        liveSignalLabel = "Not Available"
+        liveChargerStatus = "Not Available"
         livePowerSource = "--"
-        liveMqttDeviceStatus = "unknown"
-        liveNtpStatus = "unknown"
+        liveMqttDeviceStatus = "Not Available"
+        liveNtpStatus = "Not Available"
         liveLostSamples = "--"
         liveDataLatency = "--"
     }
 
     function updateLiveMetrics(data, replaceMissing) {
         if (!data) return
+        auxiliaryGrid.updateValues(data, replaceMissing)
         const temp = metricValue(data, ["ACC/TEMPERATURE", "TEMPERATURE", "temp", "temperature"])
         const battery = metricValue(data, ["BATTERY", "BAT_FUEL_GAUGE_REPSOC", "battery"])
         const rssi = metricValue(data, ["CELLULAR_RSSI", "SIGNAL", "RSSI", "cellular_rssi"])
@@ -159,12 +205,15 @@ Item {
     }
 
     function loadSensorMeta() {
-        sensorData = typeof backend !== "undefined" ? (backend.getSensorData(sensorName) || ({})) : ({})
+        sensorData = typeof backend !== "undefined" ? (backend.getSensorData(sensorName, false) || ({})) : ({})
         mapLat = Number(sensorData.gnss_lat || sensorData.GNSS_LAT || -6.917464)
         mapLon = Number(sensorData.gnss_lon || sensorData.GNSS_LON || 107.619123)
 
         resetLiveMetrics()
-        updateLiveMetrics(sensorData, true)
+        const current = Object.create(null)
+        for (const key of Object.keys(liveReadings))
+            current[key] = liveReadings[key].value
+        updateLiveMetrics(current, true)
         liveDeviceType = sensorData["DEVICE_TYPE"] || sensorData.device_type || liveDeviceType
         sensorMapCard.recenter()
     }
@@ -203,6 +252,13 @@ Item {
     }
 
     onSensorNameChanged: {
+        liveReadings = Object.create(null)
+        resetLiveMetrics()
+        auxiliaryGrid.updateValues({}, true)
+        freshnessNow = Date.now()
+        monitoringStartedAt = freshnessNow
+        accelReceivedAt = 0
+        inclineReceivedAt = 0
         isFrozen = false
         accelChart.clearSeries()
         inclinoChart.clearSeries()
@@ -211,18 +267,33 @@ Item {
 
     Popup {
         id: exportOptionsDialog
-        width: 420
-        height: 250
+        objectName: "exportOptionsDialog"
+        width: Math.min(460, parent.width - 32)
+        padding: 24
         modal: true
-        dim: true
+        focus: true
         anchors.centerIn: Overlay.overlay
-        background: Rectangle { color: Theme.card; radius: 12; border.color: Theme.border }
+        background: Rectangle { color: Theme.dialog; radius: 12; border.color: Theme.border }
 
-        ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: 24
-            anchors.bottomMargin: 32
-            spacing: 16
+        property double startSeconds: 0
+        property double endSeconds: 0
+        property string feedback: ""
+        readonly property string dateTimeFormat: "yyyy-MM-dd HH:mm:ss"
+
+        function parseLocalTime(input) {
+            const date = Date.fromLocaleString(Qt.locale("en_US"), input.trim(), dateTimeFormat)
+            return Qt.formatDateTime(date, dateTimeFormat) === input.trim() ? date.getTime() : NaN
+        }
+
+        onAboutToShow: {
+            const now = new Date()
+            endDateTime.setDateTime(now)
+            startDateTime.setDateTime(new Date(now.getTime() - 86400000))
+            feedback = ""
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 10
 
             Text {
                 text: I18n.format("sensor.exportTitle", {"sensor": sensorData.name || page.sensorName}, "Export " + (sensorData.name || page.sensorName))
@@ -233,62 +304,77 @@ Item {
                 Layout.fillWidth: true
             }
             Text {
-                text: I18n.t("sensor.exportHelp", "Select the time range to export for this sensor.")
+                text: I18n.t("sensor.exportHelp", "Export all saved parameters for this sensor within the selected time range.")
                 color: Theme.subText
                 font.pixelSize: 14
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
             }
-            ComboBox {
-                id: exportRangeComboDialog
+            FieldLabel { text: I18n.t("sensor.exportFormat", "File format") }
+            WinComboBox {
+                id: exportFormat
                 Layout.fillWidth: true
-                font.pixelSize: 14
-                model: [I18n.t("ranges.hour", "Last 1 Hour"), I18n.t("ranges.day", "Last 24 Hours"), I18n.t("ranges.week", "Last 7 Days"), I18n.t("ranges.all", "All Data")]
-                currentIndex: 1
-                background: Rectangle { color: Theme.controlBg; radius: 6; border.color: exportRangeComboDialog.activeFocus ? Theme.accent : Theme.border; border.width: exportRangeComboDialog.activeFocus ? 2 : 1 }
-                contentItem: Text { text: exportRangeComboDialog.displayText; color: Theme.text; font.pixelSize: 14; verticalAlignment: Text.AlignVCenter; leftPadding: 12 }
-                delegate: ItemDelegate {
-                    width: exportRangeComboDialog.width
-                    contentItem: Text { text: modelData; color: Theme.text; font.pixelSize: 14; verticalAlignment: Text.AlignVCenter }
-                    background: Rectangle { color: exportRangeComboDialog.highlightedIndex === index ? Theme.controlHover : "transparent"; radius: 4 }
-                }
-                popup: Popup {
-                    y: exportRangeComboDialog.height + 4
-                    width: exportRangeComboDialog.width
-                    padding: 4
-                    background: Rectangle { color: Theme.dialog; border.color: Theme.border; radius: 6 }
-                    contentItem: ListView { clip: true; implicitHeight: contentHeight; model: exportRangeComboDialog.popup.visible ? exportRangeComboDialog.delegateModel : null; currentIndex: exportRangeComboDialog.highlightedIndex }
-                }
+                model: ["CSV (.csv)", "Excel (.xlsx)"]
+                Accessible.name: I18n.t("sensor.exportFormat", "File format")
             }
-            Item { Layout.fillHeight: true }
+            FieldLabel { text: I18n.t("sensor.exportStart", "Start (local time)") }
+            DateTimeFields {
+                id: startDateTime
+                Layout.fillWidth: true
+                fieldName: I18n.t("sensor.exportStart", "Start (local time)")
+                onEdited: exportOptionsDialog.feedback = ""
+            }
+            FieldLabel { text: I18n.t("sensor.exportEnd", "End (local time)") }
+            DateTimeFields {
+                id: endDateTime
+                Layout.fillWidth: true
+                fieldName: I18n.t("sensor.exportEnd", "End (local time)")
+                onEdited: exportOptionsDialog.feedback = ""
+            }
+            Text {
+                Layout.fillWidth: true
+                text: exportOptionsDialog.feedback || I18n.t("sensor.exportMinuteHint", "Time uses 24-hour format. The end minute is included.")
+                color: exportOptionsDialog.feedback ? Theme.danger : Theme.subText
+                wrapMode: Text.WordWrap
+            }
             RowLayout {
                 Layout.fillWidth: true
-                spacing: 12
+                Layout.topMargin: 8
+                spacing: 8
                 Item { Layout.fillWidth: true }
                 WinButton { text: I18n.t("common.cancel", "Cancel"); onClicked: exportOptionsDialog.close() }
-                WinButton { text: I18n.t("common.chooseExport", "Choose File & Export"); isAccent: true; onClicked: { exportOptionsDialog.close(); exportFileDialog.open() } }
+                WinButton {
+                    text: I18n.t("common.chooseExport", "Choose File & Export")
+                    isAccent: true
+                    onClicked: {
+                        const start = exportOptionsDialog.parseLocalTime(startDateTime.value())
+                        const end = exportOptionsDialog.parseLocalTime(endDateTime.value())
+                        if (!Number.isFinite(start) || !Number.isFinite(end) || start <= 0 || end < start) {
+                            exportOptionsDialog.feedback = I18n.t("sensor.exportInvalidRange", "Enter valid dates and times. End must be at or after start.")
+                            return
+                        }
+                        exportOptionsDialog.startSeconds = start / 1000
+                        exportOptionsDialog.endSeconds = end / 1000 + 59
+                        exportFileDialog.open()
+                    }
+                }
             }
         }
     }
 
     FileDialog {
         id: exportFileDialog
-        title: I18n.t("sensor.saveCsv", "Save Exported CSV")
+        title: I18n.t("sensor.saveExport", "Save Telemetry Export")
         fileMode: FileDialog.SaveFile
-        nameFilters: ["CSV files (*.csv)"]
+        defaultSuffix: exportFormat.currentIndex === 1 ? "xlsx" : "csv"
+        nameFilters: defaultSuffix === "xlsx" ? ["Excel files (*.xlsx)"] : ["CSV files (*.csv)"]
         onAccepted: {
-            let filepath = selectedFile.toString().replace("file://", "")
-            if (Qt.platform.os === "windows" && filepath.startsWith("/")) filepath = filepath.substring(1)
-            const now = Date.now() / 1000
-            let startTime = 0
-            switch (exportRangeComboDialog.currentIndex) {
-                case 0: startTime = now - 3600; break
-                case 1: startTime = now - 24 * 3600; break
-                case 2: startTime = now - 7 * 24 * 3600; break
-                default: startTime = 0; break
+            if (typeof backend !== "undefined" && backend.exportSensorData(file.toString(), page.sensorName,
+                    exportOptionsDialog.startSeconds, exportOptionsDialog.endSeconds, defaultSuffix)) {
+                exportOptionsDialog.close()
+            } else {
+                exportOptionsDialog.feedback = I18n.t("sensor.exportCouldNotStart", "Could not start export.")
             }
-            if (typeof backend !== "undefined")
-                backend.exportSensorData(filepath, page.sensorName, startTime, 0)
         }
     }
 
@@ -389,6 +475,11 @@ Item {
                 onBatteryHistoryRequested: historyChartDialog.openBattery(page.sensorName)
             }
 
+            AuxiliaryMetricsGrid {
+                id: auxiliaryGrid
+                streams: page.sensorData.streams || []
+            }
+
             GridLayout {
                 id: motionChartsGrid
                 objectName: "motionChartsGrid"
@@ -402,6 +493,9 @@ Item {
 
                 MotionChartPanel {
                     id: accelPanel
+                    staleSeconds: Math.max(0, Math.floor((page.freshnessNow - (page.accelReceivedAt || page.monitoringStartedAt)) / 1000))
+                    hasLiveSamples: page.accelReceivedAt > 0
+                    onHistoryRequested: historyChartDialog.openMotion(page.sensorName, "ACC/X,ACC/Y,ACC/Z")
                     visible: page.hasAcceleration
                     Layout.columnSpan: page.hasInclination ? 1 : motionChartsGrid.columns
                     objectName: "accelPanel"
@@ -429,6 +523,7 @@ Item {
                         yAxisTitle: I18n.t("sensor.accelAxis", "Accel (g)")
                         defaultYMin: -2
                         defaultYMax: 2
+                        frozenYLimit: 8
                         initialXMax: 60
                         seriesDefinitions: [
                             {"name": "X Axis", "color": Theme.axisX},
@@ -440,6 +535,9 @@ Item {
 
                 MotionChartPanel {
                     id: inclinoPanel
+                    staleSeconds: Math.max(0, Math.floor((page.freshnessNow - (page.inclineReceivedAt || page.monitoringStartedAt)) / 1000))
+                    hasLiveSamples: page.inclineReceivedAt > 0
+                    onHistoryRequested: historyChartDialog.openMotion(page.sensorName, "ACC/PITCH,ACC/ROLL")
                     visible: page.hasInclination
                     Layout.columnSpan: page.hasAcceleration ? 1 : motionChartsGrid.columns
                     objectName: "inclinoPanel"

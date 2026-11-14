@@ -107,6 +107,11 @@ channels, time base, and units before mapping them.
      all selected channels through a single WebSocket Listener/Out at
      `/<MAC-ID>/STREAMING` or the matching override entered in SEAM.
      A Combo batch may contain acceleration and tilt points together.
+   - **Auxiliary metrics** in either BeanDevice mode use one dedicated
+     WebSocket path per metric. For example, route `ACC/TEMPERATURE` to
+     `/<MAC-ID>/temperature` and `CELLULAR_RSSI` to `/<MAC-ID>/rssi`. Configure
+     the same metric names and paths through **Add auxiliary metric** in SEAM.
+     Keep the BeanDevice's configured `device_id` in these envelopes.
    - **Custom** routes one configured metric per WebSocket path.
 4. Keep the exact device ID and metric spelling when publishing. The device's
    MQTT topic is configurable in BeanScape. SEAM's suggested paths are editable.
@@ -136,3 +141,29 @@ flow and decoder do not decode BeanAir's binary MQTT frames.
 
 Picker photographs are from the [Dewesoft NemoSense product page](https://dewesoft.com/products/nemosense)
 and [BeanAir WiLow X-INC datasheet](https://www.wireless-iot-sensors.beanair.com/files/Datasheet-wifi-accelerometer-and-inclinometer-sensors-beandevice-Wilow-X-Inc.pdf).
+
+## Remote BeanDevice streaming configuration
+
+Import `nodered/flows/beandevice-otac.json` alongside the telemetry flow.
+In **Allowlisted DAQ OTAC**, add each device's 16-digit MAC ID, its actual
+OTAC subscription topic from BeanScape, and the sample rates supported by
+its model and firmware. The allowlist starts empty. In **Select BeanAir
+broker**, select the broker the device uses and deploy the flow. Enable
+OTAC subscription on the device in BeanScape if it is disabled.
+
+Restrict access to the Node-RED HTTP endpoint to trusted SEAM operators
+through your deployment firewall or authenticated gateway. Use HTTPS across
+networks. Give the Node-RED broker account publish permission only on the
+intended OTAC topics. Commands use QoS 0 and retain disabled.
+
+In SEAM, save the sensor as **BeanDevice → Streaming** using the hardware
+MAC as the device ID. Reopen **Sensor Settings → Remote streaming
+configuration**, enter the rate, set logging and store-and-forward, and click
+**Send streaming configuration**. This sends a complete continuous-streaming
+DAQ configuration with transmission enabled. Store-and-forward uses the
+vendor's 65535 rollover setting when enabled. It can replace existing burst
+or one-shot settings. A queued response confirms only that Node-RED accepted
+the request. Verify the reported sample rate and device settings separately.
+
+The command frame follows BeanAir TN-RF-004 sections 7.1 and 7.3.1. The
+command endpoint is separate from the telemetry WebSocket.

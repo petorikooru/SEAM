@@ -114,7 +114,8 @@ Popup {
             }
 
             WinButton {
-                text: Icons.cancel
+                iconName: Icons.cancel
+                Accessible.name: I18n.t("common.close", "Close")
                 isQuiet: true
                 Layout.preferredWidth: 38
                 Layout.preferredHeight: 38

@@ -15,6 +15,17 @@ Popup {
     width: Math.min(800, Overlay.overlay ? Overlay.overlay.width - 32 : 800)
     padding: 20
     modal: true
+    dim: true
+    transformOrigin: Popup.Center
+    enter: Transition {
+        ParallelAnimation {
+            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 180; easing.type: Easing.OutCubic }
+            NumberAnimation { property: "scale"; from: 0.97; to: 1; duration: 210; easing.type: Easing.OutCubic }
+        }
+    }
+    exit: Transition {
+        NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 120 }
+    }
     focus: true
 
     background: Rectangle {
@@ -34,9 +45,11 @@ Popup {
             font.bold: true
         }
 
-        RowLayout {
+        GridLayout {
             Layout.fillWidth: true
-            spacing: 10
+            columns: picker.availableWidth >= 570 ? 3 : 1
+            columnSpacing: 12
+            rowSpacing: 8
 
             Repeater {
                 model: [
@@ -50,7 +63,7 @@ Popup {
                     required property var modelData
                     Layout.fillWidth: true
                     Layout.preferredWidth: 1
-                    implicitHeight: 200
+                    implicitHeight: picker.availableWidth >= 570 ? 180 : 92
                     padding: 16
                     hoverEnabled: true
                     text: modelData.name
@@ -59,15 +72,17 @@ Popup {
                     background: Rectangle {
                         radius: 10
                         color: card.down ? Theme.controlPressed : card.hovered ? Theme.controlHover : Theme.card
-                        border.color: card.activeFocus || card.hovered ? Theme.accent : Theme.border
+                        border.color: card.visualFocus || card.hovered ? Theme.accent : Theme.border
+                        border.width: card.visualFocus ? 2 : 1
                     }
 
                     contentItem: ColumnLayout {
-                        spacing: 10
+                        spacing: 6
 
                         Item {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
+                            Layout.minimumHeight: 28
 
                             Image {
                                 anchors.fill: parent
@@ -80,7 +95,7 @@ Popup {
                                 anchors.centerIn: parent
                                 visible: card.modelData.photo === ""
                                 icon: Icons.sensor
-                                size: 54
+                                size: picker.availableWidth >= 570 ? 48 : 28
                                 color: Theme.accent
                             }
                         }
@@ -92,7 +107,7 @@ Popup {
                             elide: Text.ElideRight
                             color: Theme.text
                             font.family: Theme.fontFamily
-                            font.pixelSize: 18
+                            font.pixelSize: 16
                             font.bold: true
                         }
                     }

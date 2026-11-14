@@ -1,0 +1,124 @@
+[
+  {
+    "id": "seam-bean-otac",
+    "type": "tab",
+    "label": "SEAM BeanDevice OTAC"
+  },
+  {
+    "id": "seam-bean-otac-in",
+    "type": "http in",
+    "z": "seam-bean-otac",
+    "name": "Streaming configuration",
+    "url": "/kai/beandevice/streaming",
+    "method": "post",
+    "x": 180,
+    "y": 100,
+    "wires": [
+      [
+        "seam-bean-otac-build"
+      ]
+    ]
+  },
+  {
+    "id": "seam-bean-otac-build",
+    "type": "function",
+    "z": "seam-bean-otac",
+    "name": "Allowlisted DAQ OTAC",
+    "func": "// List the device's supported rates and its configured OTAC subscription.\nconst devices = {\n    // \"582B0A9B79960000\": { topic: \"582B0A9B79960000/OTAC\", rates: [25] },\n};\nif (msg.req?.path?.endsWith(\"/recording\") || !msg.req) {\n    const sessions = context.get(\"downloads\") || {};\nif (msg.req?.method === \"GET\") {\n    const token = msg.req.query?.token;\n    const session = Object.values(sessions).find(entry => entry.token === token);\n    msg.statusCode = session ? 200 : 404;\n    msg.payload = session ? { percent: session.percent } : {};\n    return [null, msg];\n}\n    const respond = (http, statusCode, payload) =>\n        node.send([null, { ...http, statusCode, payload }]);\n    const publish = (topic, payload) =>\n        node.send([{ topic, payload, retain: false, qos: 0 }, null]);\n\n    if (msg.req) {\n        const id = msg.payload?.device_id;\n        const target = typeof id === \"string\" && /^[0-9A-F]{16}$/.test(id)\n            && id !== \"FFFFFFFFFFFFFFFF\" && Object.hasOwn(devices, id) ? devices[id] : null;\n        const index = msg.payload?.file_index;\n    const token = msg.payload?.token;\n    if (typeof token !== \"string\" || !/^[0-9a-f]{32}$/.test(token))\n        return respond(msg, 400, \"Invalid transfer token\");\n        if (!target || !Number.isInteger(index) || index < 0 || index > 65535)\n            return respond(msg, 400, \"Invalid download target or file index\");\n        if (Object.keys(sessions).length)\n            return respond(msg, 409, \"A download is already active\");\n\n        const started = Date.now();\n        const session = { http: msg, index, token, percent: -1, frames: [], size: 0, last: started };\n        sessions[id] = session;\n        context.set(\"downloads\", sessions);\n        const timer = setInterval(() => {\n            if (sessions[id] !== session) return clearInterval(timer);\n            if (Date.now() - session.last < 20000 && Date.now() - started < 120000) return;\n            delete sessions[id];\n            clearInterval(timer);\n            respond(msg, 504, \"Recording transfer timed out\");\n        }, 1000);\n\n        const command = Buffer.from(id + \"05d001010000\", \"hex\");\n        command.writeUInt16LE(index, 12);\n        publish(target.topic, command);\n        return;\n    }\n\n    const raw = msg.payload;\n    if (!Buffer.isBuffer(raw) || raw.length < 26) return;\n    const long = raw[0] === 255;\n    const base = long ? 20 : 17;\n    const length = long ? raw.readUInt16LE(1) : raw[0];\n    if (raw.length < base + 9 || length !== raw.length - 1) return;\n\n    const id = raw.subarray(long ? 5 : 3, long ? 13 : 11).toString(\"hex\").toUpperCase();\n    const session = sessions[id];\n    if (!session || typeof msg.topic !== \"string\" || !msg.topic.startsWith(id + \"/\") || msg.retain) return;\n    const type = raw[base];\n    if (type !== 0xf1 && type !== 0xf2) return;\n    const index = raw.readUInt16LE(base + 1);\n    const seq = raw.readUInt32LE(base + 3);\n    const flags = raw[base + 7];\n    const progress = raw[base + 8];\n    if ((flags & 15) !== (type & 15) || progress > 200) return;\n\n    const end = (status, body) => {\n        delete sessions[id];\n        respond(session.http, status, body);\n    };\n    if (session.index !== index) return end(502, \"Unexpected recording index\");\n\n    const duplicate = session.frames.some(frame => {\n        const offset = frame[0] === 255 ? 20 : 17;\n        return frame[offset] === type && frame.readUInt32LE(offset + 3) === seq;\n    });\n    if (!duplicate) {\n        if (type === 0xf1 ? session.frames.length !== 0\n            : !session.frames.length || (session.seq === undefined ? seq > 1 : seq !== session.seq + 1))\n            return end(502, \"Recording frames arrived out of order or with a gap\");\n        if (session.size + raw.length + 4 > 32 * 1024 * 1024)\n            return end(413, \"Recording exceeds the 32 MiB transfer limit\");\n        session.frames.push(raw);\n        session.size += raw.length + 4;\n        if (type === 0xf2) session.seq = seq;\n    }\n\n    session.last = Date.now();\nsession.percent = Math.max(session.percent, Math.min(99, Math.floor(progress / 2)));\n    if (type === 0xf1 || (flags & 0xf0) === 0x10 || progress === 200) {\n        const ack = Buffer.from(id + \"059201000000\", \"hex\");\n        ack.writeUInt16LE(index, 11);\n        ack[13] = type & 15;\n        publish(devices[id].topic, ack);\n    }\n    if (type === 0xf2 && progress === 200) {\n        const archive = Buffer.alloc(session.size);\n        let offset = 0;\n        for (const frame of session.frames) {\n            archive.writeUInt32LE(frame.length, offset);\n            frame.copy(archive, offset + 4);\n            offset += 4 + frame.length;\n        }\n        session.http.headers = { \"Content-Type\": \"application/octet-stream\" };\n        end(200, archive);\n    }\n    return;\n}\nconst body = msg.payload;\nconst readRates = msg.req?.method === \"GET\";\nconst id = readRates ? msg.req.query?.device_id : body?.device_id;\nconst device = typeof id === \"string\" && /^[0-9A-F]{16}$/.test(id) &&\n    id !== \"FFFFFFFFFFFFFFFF\" && Object.hasOwn(devices, id) ? devices[id] : null;\nif (readRates) {\n    msg.statusCode = device ? 200 : 404;\n    msg.payload = { rates: device?.rates ?? [] };\n    return [null, msg];\n}\nconst rate = body?.sample_rate;\nconst options = { tx: 0x24, log: 0x05, tx_log: 0x25, sa: 0x40 };\nconst mode = body?.mode;\nconst standalone = mode === \"sa\";\nconst pattern = standalone ? \"continuous\" : (body?.pattern ?? \"continuous\");\nconst patternBits = { continuous: 4, one_shot: 8, burst: 12 };\nconst needsCycle = standalone || pattern === \"burst\";\nconst needsDuration = needsCycle || pattern === \"one_shot\";\nconst timed = value => Number.isInteger(value) && value > 0 && value <= 0xffffff;\nif (!device || !Number.isInteger(rate) || rate < 1 || rate > 65535 ||\n    !device.rates.includes(rate) || !Object.hasOwn(options, mode) ||\n    (typeof pattern !== \"string\" || !Object.hasOwn(patternBits, pattern)) ||\n    (needsDuration && !timed(body.duration)) ||\n    (needsCycle && (!timed(body.cycle) || body.duration > body.cycle)) ||\n    typeof body.store_forward !== \"boolean\" ||\n    (body.store_forward && mode !== \"tx\" && mode !== \"tx_log\")) {\n    msg.statusCode = 400;\n    msg.payload = { error: \"Device or streaming configuration is not allowed\" };\n    return [null, msg];\n}\n\n// TN-RF-004 section 7.3.1. Continuous Streaming or Stand Alone SET.\nconst frame = Buffer.alloc(32);\nBuffer.from(id, \"hex\").copy(frame);\nframe[8] = 23;\nframe[9] = 0x10;\nframe[10] = standalone ? 0x05 : 0x03;\nframe.writeUInt16LE((options[mode] & ~0x1c) | (standalone ? 0 : patternBits[pattern]) | (Number(body.store_forward) << 1), 11);\nif (needsCycle) frame.writeUIntLE(body.cycle, 15, 3);\nif (needsDuration) frame.writeUIntLE(body.duration, 19, 3);\nframe.writeUIntLE(rate, 22, 3);\nframe.writeUInt16LE(body.store_forward ? 65535 : 0, 28);\nmsg.statusCode = 202;\nmsg.payload = { status: \"queued\" };\nreturn [{ topic: device.topic, payload: frame, qos: 0, retain: false }, msg];",
+    "outputs": 2,
+    "x": 420,
+    "y": 100,
+    "wires": [
+      [
+        "seam-bean-otac-out"
+      ],
+      [
+        "seam-bean-otac-response"
+      ]
+    ]
+  },
+  {
+    "id": "seam-bean-otac-out",
+    "type": "mqtt out",
+    "z": "seam-bean-otac",
+    "name": "Select BeanAir broker",
+    "topic": "",
+    "qos": "0",
+    "retain": "false",
+    "broker": "",
+    "x": 680,
+    "y": 80,
+    "wires": []
+  },
+  {
+    "id": "seam-bean-otac-response",
+    "type": "http response",
+    "z": "seam-bean-otac",
+    "name": "Queue result",
+    "x": 660,
+    "y": 140,
+    "wires": []
+  },
+  {
+    "id": "seam-bean-otac-rates",
+    "type": "http in",
+    "z": "seam-bean-otac",
+    "name": "Allowed sample rates",
+    "url": "/kai/beandevice/streaming",
+    "method": "get",
+    "x": 180,
+    "y": 160,
+    "wires": [
+      [
+        "seam-bean-otac-build"
+      ]
+    ]
+  },
+  {
+    "id": "seam-bean-recording",
+    "type": "http in",
+    "z": "seam-bean-otac",
+    "name": "Download recording",
+    "url": "/kai/beandevice/recording",
+    "method": "post",
+    "x": 180,
+    "y": 220,
+    "wires": [
+      [
+        "seam-bean-otac-build"
+      ]
+    ]
+  },
+  {
+    "id": "seam-bean-recording-mqtt",
+    "type": "mqtt in",
+    "z": "seam-bean-otac",
+    "name": "BeanAir raw download frames",
+    "topic": "582B0A9B79960000/#",
+    "qos": "0",
+    "datatype": "buffer",
+    "broker": "",
+    "x": 180,
+    "y": 280,
+    "wires": [
+      [
+        "seam-bean-otac-build"
+      ]
+    ]
+  },
+  {
+    "id": "seam-bean-recording-progress",
+    "type": "http in",
+    "z": "seam-bean-otac",
+    "name": "Recording progress",
+    "url": "/kai/beandevice/recording",
+    "method": "get",
+    "x": 180,
+    "y": 250,
+    "wires": [
+      [
+        "seam-bean-otac-build"
+      ]
+    ]
+  }
+]

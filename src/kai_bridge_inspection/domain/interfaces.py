@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from typing import Protocol
 
 from .models import (
@@ -26,6 +26,9 @@ class TelemetryRepository(Protocol):
 
     def query(self, query: HistoricalQuery) -> TelemetryPage:
         """Return a bounded, paginated historical query."""
+
+    def iter_points(self, query: HistoricalQuery) -> Iterator[TelemetryPoint]:
+        """Stream all matching points in chronological order, without downsampling."""
 
     def latest_values(self, device_id: str, limit: int = 200) -> Sequence[TelemetryPoint]:
         """Return the newest value for each metric."""

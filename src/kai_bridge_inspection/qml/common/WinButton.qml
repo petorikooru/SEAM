@@ -19,38 +19,50 @@ Button {
     rightPadding: 14
     hoverEnabled: true
 
-    contentItem: RowLayout {
-        spacing: 8
+    contentItem: Item {
+        implicitWidth: buttonContent.implicitWidth
+        implicitHeight: buttonContent.implicitHeight
 
-        LucideIcon {
-            visible: control.iconName !== ""
-            icon: control.iconName
-            size: Theme.iconSize
-            color: label.color
-            Layout.alignment: Qt.AlignVCenter
-        }
+        RowLayout {
+            id: buttonContent
+            anchors.centerIn: parent
+            width: Math.min(implicitWidth, parent.width)
+            spacing: 8
 
-        Text {
-            id: label
-            visible: control.text !== ""
-            text: control.text
-            font.family: Theme.fontFamily
-            font.pixelSize: 14
-            font.bold: control.isAccent
-            color: !control.enabled ? Theme.disabledText :
-                   control.isAccent ? Theme.accentText :
-                   control.isDanger ? (control.hovered ? "white" : Theme.danger) : Theme.text
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-            Layout.alignment: Qt.AlignVCenter | Qt.AlignHCenter
+            LucideIcon {
+                visible: control.iconName !== ""
+                icon: control.iconName
+                size: Theme.iconSize
+                color: label.color
+                Layout.alignment: Qt.AlignVCenter
+            }
+
+            Text {
+                id: label
+                visible: control.text !== ""
+                text: control.text
+                font.family: Theme.fontFamily
+                font.pixelSize: 14
+                font.bold: control.isAccent
+                color: !control.enabled ? Theme.disabledText :
+                       control.isAccent ? Theme.accentText :
+                       control.isDanger ? (control.hovered ? "white" : Theme.danger) : Theme.text
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                elide: Text.ElideRight
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                Layout.alignment: Qt.AlignVCenter | Qt.AlignHCenter
+            }
         }
     }
 
     background: Rectangle {
         radius: control.cornerRadius
-        border.color: control.isAccent || control.isQuiet ? "transparent" :
+        border.color: control.visualFocus ? Theme.text :
+                      control.isAccent || control.isQuiet ? "transparent" :
                       control.isDanger ? Theme.danger : Theme.border
-        border.width: control.isAccent || control.isQuiet ? 0 : 1
+        border.width: control.visualFocus ? 2 : control.isAccent || control.isQuiet ? 0 : 1
 
         color: {
             if (!control.enabled) return Theme.controlDisabled

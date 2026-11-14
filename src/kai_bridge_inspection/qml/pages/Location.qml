@@ -61,7 +61,7 @@ Page {
         if (sensorList.length === 0) {
             selectSensor(-1)
         } else {
-            let nextIndex = selectedSensorIndex
+            let nextIndex = sensorList.indexOf(selectedSensorName)
             if (nextIndex < 0 || nextIndex >= sensorList.length)
                 nextIndex = 0
             selectSensor(nextIndex)
@@ -78,12 +78,12 @@ Page {
         isFrozen = false
         selectedSensorIndex = index
         selectedSensorName = index >= 0 && index < sensorList.length ? sensorList[index] : ""
-        selectedSensorData = selectedSensorName.length > 0 && appBackend ? (appBackend.getSensorData(selectedSensorName) || ({})) : ({})
+        selectedSensorData = selectedSensorName.length > 0 && appBackend ? (appBackend.getSensorData(selectedSensorName, false) || ({})) : ({})
 
         accelChart.clearSeries()
         inclinoChart.clearSeries()
+        readingTimes = ({})
         resetLiveMetrics()
-        updateLiveMetrics(selectedSensorData, true)
 
         if (appBackend && selectedSensorName.length > 0)
             appBackend.registerLiveCharts(
@@ -91,6 +91,24 @@ Page {
                 accelChart.seriesAt(0), accelChart.seriesAt(1), accelChart.seriesAt(2),
                 inclinoChart.seriesAt(0), inclinoChart.seriesAt(1)
             )
+    }
+
+    property var readingTimes: ({})
+
+    Timer {
+        interval: 1000
+        repeat: true
+        running: page.visible
+        onTriggered: {
+            const now = Date.now()
+            for (const field of Object.keys(page.readingTimes)) {
+                if (now - page.readingTimes[field] >= 15000) {
+                    page[field] = {"liveTemp": "-- °C", "liveBattery": "-- %",
+                                   "liveRssi": "-- dBm", "liveSampleRate": "-- Hz"}[field]
+                    delete page.readingTimes[field]
+                }
+            }
+        }
     }
 
     function metricValue(data, keys) {
@@ -122,13 +140,25 @@ Page {
         const rssi = metricValue(data, ["CELLULAR_RSSI", "SIGNAL", "RSSI", "cellular_rssi"])
         const sampleRate = metricValue(data, ["INFERRED_SAMPLE_RATE", "INFERED_SAMPLE_RATE", "inferred_sample_rate", "infered_sample_rate", "sample_rate"])
 
-        if (temp !== undefined) liveTemp = formattedMetric(temp, 2, " °C", liveTemp)
+        if (temp !== undefined) {
+            readingTimes.liveTemp = Date.now()
+            liveTemp = formattedMetric(temp, 2, " °C", liveTemp)
+        }
         else if (replaceMissing) liveTemp = "-- °C"
-        if (battery !== undefined) liveBattery = formattedMetric(battery, 1, " %", liveBattery)
+        if (battery !== undefined) {
+            readingTimes.liveBattery = Date.now()
+            liveBattery = formattedMetric(battery, 1, " %", liveBattery)
+        }
         else if (replaceMissing) liveBattery = "-- %"
-        if (rssi !== undefined) liveRssi = formattedMetric(rssi, 0, " dBm", liveRssi)
+        if (rssi !== undefined) {
+            readingTimes.liveRssi = Date.now()
+            liveRssi = formattedMetric(rssi, 0, " dBm", liveRssi)
+        }
         else if (replaceMissing) liveRssi = "-- dBm"
-        if (sampleRate !== undefined) liveSampleRate = formattedMetric(sampleRate, 1, " Hz", liveSampleRate)
+        if (sampleRate !== undefined) {
+            readingTimes.liveSampleRate = Date.now()
+            liveSampleRate = formattedMetric(sampleRate, 1, " Hz", liveSampleRate)
+        }
         else if (replaceMissing) liveSampleRate = "-- Hz"
     }
 
@@ -177,8 +207,6 @@ Page {
         function onIndicatorsUpdated(data) {
             if (data.device_id !== page.selectedSensorName)
                 return
-            for (const key in data)
-                page.selectedSensorData[key] = data[key]
             // Telemetry batches are partial.  Preserve the last known values for
             // metrics that are not present in this particular batch.
             page.updateLiveMetrics(data, false)
@@ -201,7 +229,7 @@ Page {
 
         ColumnLayout {
             width: parent.width
-            spacing: 16
+            spacing: 20
 
             Item { Layout.preferredHeight: page.width < 720 ? 14 : 22 }
 
@@ -282,8 +310,8 @@ Page {
                 Layout.leftMargin: page.width < 720 ? 16 : 22
                 Layout.rightMargin: page.width < 720 ? 16 : 22
                 columns: page.compact ? 1 : 2
-                columnSpacing: 16
-                rowSpacing: 16
+                columnSpacing: 20
+                rowSpacing: 20
 
                 Rectangle {
                     Layout.fillWidth: true
@@ -295,8 +323,8 @@ Page {
 
                     ColumnLayout {
                         anchors.fill: parent
-                        anchors.margins: 16
-                        spacing: 10
+                        anchors.margins: 18
+                        spacing: 14
 
                         RowLayout {
                             Layout.fillWidth: true
@@ -531,7 +559,7 @@ Page {
                     id: sensorSectionContent
                     anchors.fill: parent
                     anchors.margins: 16
-                    spacing: 12
+                    spacing: 16
 
                     RowLayout {
                         Layout.fillWidth: true
@@ -546,21 +574,22 @@ Page {
 
                     GridLayout {
                         id: sensorDetailGrid
+                        readonly property int compactPickerHeight: 62
                         Layout.fillWidth: true
                         Layout.preferredHeight: page.compact
-                            ? 120 + sensorDetailPane.implicitHeight + rowSpacing
+                            ? compactPickerHeight + sensorDetailPane.implicitHeight + rowSpacing
                             : Math.max(470, sensorDetailPane.implicitHeight)
                         columns: page.compact ? 1 : 2
-                        columnSpacing: 14
-                        rowSpacing: 12
+                        columnSpacing: 18
+                        rowSpacing: 16
 
                         Rectangle {
                             id: sensorListPane
                             Layout.fillWidth: page.compact
                             Layout.fillHeight: !page.compact
                             Layout.preferredWidth: page.compact ? -1 : 230
-                            Layout.preferredHeight: page.compact ? 120 : sensorDetailPane.implicitHeight
-                            Layout.minimumHeight: page.compact ? 120 : 0
+                            Layout.preferredHeight: page.compact ? sensorDetailGrid.compactPickerHeight : sensorDetailPane.implicitHeight
+                            Layout.minimumHeight: page.compact ? sensorDetailGrid.compactPickerHeight : 0
                             radius: 10
                             color: Theme.controlBg
                             border.color: Theme.border
@@ -576,18 +605,21 @@ Page {
 
                                 delegate: Button {
                                     id: sensorItem
-                                    width: page.compact ? Math.max(170, sensorListView.width / Math.max(1, Math.min(page.sensorList.length, 3))) : sensorListView.width
+                                    readonly property int visibleItems: Math.max(1, Math.min(page.sensorList.length, 3))
+                                    width: page.compact
+                                        ? Math.max(170, (sensorListView.width - (visibleItems - 1) * sensorListView.spacing) / visibleItems)
+                                        : sensorListView.width
                                     height: page.compact ? sensorListView.height : 56
                                     padding: 0
+                                    leftPadding: 12
+                                    rightPadding: 12
                                     onClicked: page.selectSensor(index)
                                     background: Rectangle {
                                         radius: 8
                                         color: page.selectedSensorIndex === index ? Theme.accent : (sensorItem.hovered ? Theme.controlHover : "transparent")
                                     }
                                     contentItem: RowLayout {
-                                        anchors.leftMargin: 11
-                                        anchors.rightMargin: 9
-                                        spacing: 9
+                                        spacing: 10
                                         LucideIcon { icon: Icons.sensor; color: page.selectedSensorIndex === index ? Theme.accentText : Theme.info; size: Theme.iconSizeSmall }
                                         ColumnLayout {
                                             Layout.fillWidth: true
@@ -605,7 +637,7 @@ Page {
                             id: sensorDetailPane
                             Layout.fillWidth: true
                             Layout.fillHeight: !page.compact
-                            implicitHeight: Math.max(330, selectedSensorContent.visible ? selectedSensorContent.implicitHeight + 26 : 330)
+                            implicitHeight: Math.max(330, selectedSensorContent.visible ? selectedSensorContent.implicitHeight + 36 : 330)
                             radius: 10
                             color: Theme.bg
                             border.color: Theme.border
@@ -613,21 +645,23 @@ Page {
                             ColumnLayout {
                                 id: selectedSensorContent
                                 anchors.fill: parent
-                                anchors.margins: 13
-                                spacing: 10
+                                anchors.margins: 18
+                                spacing: 14
                                 visible: page.selectedSensorName.length > 0
 
                                 RowLayout {
                                     Layout.fillWidth: true
+                                    spacing: 10
                                     ColumnLayout {
                                         Layout.fillWidth: true
-                                        spacing: 0
+                                        spacing: 4
                                         Text { text: page.selectedSensorData.name || page.selectedSensorName; color: Theme.text; font.pixelSize: 18; font.bold: true; elide: Text.ElideRight; Layout.fillWidth: true }
                                         Text { text: page.selectedSensorData.description || "No sensor description"; color: Theme.subText; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true }
                                     }
-                                    ActionButton { text: I18n.t("common.open", "Open"); onClicked: page.openSelectedSensor() }
+                                    ActionButton { iconName: Icons.externalLink; text: I18n.t("common.open", "Open"); onClicked: page.openSelectedSensor() }
                                     ActionButton {
-                                        text: Icons.trash
+                                        iconName: Icons.trash
+                                        Accessible.name: I18n.t("nav.deleteSensor", "Delete sensor")
                                         isDanger: true
                                         Layout.preferredWidth: 38
                                         onClicked: {
@@ -641,9 +675,9 @@ Page {
 
                                 GridLayout {
                                     Layout.fillWidth: true
-                                    columns: page.width >= 1040 ? 4 : 2
-                                    columnSpacing: 8
-                                    rowSpacing: 8
+                                    columns: width >= 640 ? 4 : 2
+                                    columnSpacing: 12
+                                    rowSpacing: 12
                                     MetricBox { labelText: I18n.t("sensor.temperature", "Temperature"); valueText: page.liveTemp; iconText: Icons.temp; accentColor: Theme.warning }
                                     MetricBox { labelText: I18n.t("sensor.battery", "Battery"); valueText: page.liveBattery; iconText: Icons.battery; accentColor: Theme.success }
                                     MetricBox { labelText: I18n.t("sensor.signal", "Signal"); valueText: page.liveRssi; iconText: Icons.signal; accentColor: Theme.info }
@@ -653,10 +687,10 @@ Page {
                                 GridLayout {
                                     Layout.fillWidth: true
                                     Layout.fillHeight: true
-                                    Layout.minimumHeight: columns === 2 ? 510 : 1036
-                                    columns: page.width >= 1080 ? 2 : 1
-                                    columnSpacing: 10
-                                    rowSpacing: 10
+                                    Layout.minimumHeight: columns === 2 ? 510 : 1040
+                                    columns: width >= 720 ? 2 : 1
+                                    columnSpacing: 14
+                                    rowSpacing: 14
 
                                     MotionChartPanel {
                                         titleText: I18n.t("sensor.accelerometer", "Accelerometer")
@@ -683,6 +717,7 @@ Page {
                                             yAxisTitle: I18n.t("sensor.accelAxis", "Accel (g)")
                                             defaultYMin: -2
                                             defaultYMax: 2
+                                            frozenYLimit: 8
                                             initialXMax: 60
                                             seriesDefinitions: [
                                                 {"name": "X Axis", "color": Theme.axisX},

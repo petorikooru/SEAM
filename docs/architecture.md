@@ -36,6 +36,8 @@ Desktop WebSocket clients
 
 Settings schema v4 stores the sensor profile and adds `sensor_metric_endpoints` for BeanDevice and Custom paths. NemoSense retains its existing `sensors.websocket_endpoint` for all its metrics. BeanDevice Periodic and Custom bind one canonical metric per path. BeanDevice Streaming stores its shared path on the sensor record and accepts the selected profile’s metrics on that path.
 
+Either BeanDevice mode can also store optional auxiliary routes in `sensor_metric_endpoints`. Each auxiliary route binds one metric to its own path.
+
 The desktop checks each batch against its endpoint's configured device and optional metric before queuing it. Chart and indicator routing still uses `metric_name`. A sensor can report partial connectivity if only some of its paths are connected.
 
 Existing sensor records, legacy bindings, and telemetry history are preserved when upgrading. Node-RED handles normalization for each hardware vendor and routes the resulting payloads to the configured paths.

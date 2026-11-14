@@ -430,9 +430,11 @@ class SettingsRepository:
             if routes is None:
                 routes = (
                     {"": record.websocket_endpoint or f"kai/sensors/{record.device_id}"}
-                    if profile == "nemosense" or acquisition == "streaming"
+                    if profile == "nemosense"
                     else self._read_metric_endpoints(connection, old_name or record.name)
                 )
+                if acquisition == "streaming":
+                    routes[""] = record.websocket_endpoint or f"kai/sensors/{record.device_id}"
             if (create_only or routes_explicit) and record.device_id and (current is None or current["device_id"] != record.device_id):
                 owner = connection.execute(
                     "SELECT name FROM sensors WHERE device_id = ? AND name <> ?",
@@ -545,10 +547,13 @@ class SettingsRepository:
         ).fetchall())
 
     def get_sensor_streams(self, sensor: SensorRecord) -> dict[str, str]:
-        if sensor.profile == "nemosense" or sensor_acquisition_mode(sensor.profile, sensor.trigger_mode) == "streaming":
+        if sensor.profile == "nemosense":
             return {"": sensor.websocket_endpoint}
         with self._connection() as connection:
-            return self._read_metric_endpoints(connection, sensor.name)
+            routes = self._read_metric_endpoints(connection, sensor.name)
+        if sensor_acquisition_mode(sensor.profile, sensor.trigger_mode) == "streaming":
+            return {"": sensor.websocket_endpoint, **routes}
+        return routes
 
     def _validate_routes(
         self, connection: sqlite3.Connection, name: str, profile: str, routes: dict[str, str], acquisition: str
@@ -556,10 +561,13 @@ class SettingsRepository:
         if profile not in SENSOR_PROFILES:
             raise ConfigurationError("Choose a supported sensor profile")
         required = ("",) if acquisition == "streaming" else SENSOR_PROFILES[profile][1]
-        if (required and set(routes) != set(required)) or not routes:
+        auxiliary = set(routes).difference(required)
+        if not routes or not set(required).issubset(routes) or (profile == "nemosense" and auxiliary):
             raise ConfigurationError("Enter the required WebSocket paths for the selected profile and acquisition mode")
-        if profile == "custom" and any(not _TELEMETRY_ID_RE.fullmatch(metric) for metric in routes):
-            raise ConfigurationError("Invalid custom metric name. Use 1-192 letters, digits, or ._:/-")
+        if acquisition and auxiliary.intersection(SENSOR_PROFILES["beandevice_combo"][1]):
+            raise ConfigurationError("Motion metrics must use the paths for the selected BeanDevice channels and mode")
+        if any(not _TELEMETRY_ID_RE.fullmatch(metric) for metric in auxiliary):
+            raise ConfigurationError("Invalid metric name. Use 1-192 letters, digits, or ._:/-")
         normalized = {metric: self.normalize_websocket_endpoint(path) for metric, path in routes.items()}
         if len(set(normalized.values())) != len(normalized):
             raise ConfigurationError("Each metric needs a different WebSocket path")

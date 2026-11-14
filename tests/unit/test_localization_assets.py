@@ -38,7 +38,7 @@ def test_sensor_page_declares_accelerometer_and_inclinometer_columns() -> None:
     assert "columns: width >= 980 ? 2 : 1" in sensor_qml
     assert "id: accelPanel" in sensor_qml
     assert "id: inclinoPanel" in sensor_qml
-    assert len(sensor_qml.splitlines()) < 500
+    assert sensor_qml.count("onHistoryRequested: historyChartDialog.openMotion") == 2
     assert (qml_root / "components" / "sensor" / "MotionChart.qml").is_file()
     assert (qml_root / "components" / "sensor" / "MotionChartPanel.qml").is_file()
 

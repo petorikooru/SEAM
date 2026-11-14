@@ -22,10 +22,10 @@ For each sensor, these values must match across Node-RED and the desktop:
 
 - the exact case-sensitive `device_id`
 - the configured WebSocket path
-- for BeanDevice Periodic and Custom, the exact case-sensitive `metric_name` assigned to the path
+- for BeanDevice Periodic, BeanDevice auxiliary streams, and Custom, the exact case-sensitive `metric_name` assigned to the path
 - for BeanDevice Streaming, the selected profile’s allowed metric set
 
-A NemoSense endpoint can carry all metrics for its device. Each BeanDevice Periodic or Custom endpoint carries only its assigned metric. A BeanDevice Streaming endpoint may carry a mixed batch of acceleration and inclination metrics for its device. Paths are exclusive across all profiles. A wrong device or metric causes the entire batch to be rejected. The desktop rejects a batch when the endpoint is assigned to `NEMOSENSE-01` but the envelope contains another `device_id`.
+A NemoSense endpoint can carry all metrics for its device. Each BeanDevice Periodic or Custom endpoint carries only its assigned metric. A BeanDevice Streaming endpoint may carry a mixed batch of acceleration and inclination metrics for its device. Either BeanDevice acquisition mode supports optional auxiliary endpoints such as `ACC/TEMPERATURE`, `CELLULAR_RSSI`, or `BATTERY`. Each auxiliary endpoint accepts only its assigned metric for the same device ID. The Streaming endpoint remains restricted to the motion metrics in the selected profile. Paths are exclusive across all profiles. A wrong device or metric causes the entire batch to be rejected. The desktop rejects a batch when the endpoint is assigned to `NEMOSENSE-01` but the envelope contains another `device_id`.
 
 ## Schema
 

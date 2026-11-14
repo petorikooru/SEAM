@@ -44,7 +44,10 @@ ApplicationWindow {
 
     function navigateTo(pageId, qmlFile, properties) {
         activePage = pageId
-        mainStack.replace(qmlFile, properties || {})
+        if (pageId === "nodered")
+            nodeRedPage.active = true
+        else
+            mainStack.replace(qmlFile, properties || {})
     }
 
     function openAddLocation() {
@@ -80,8 +83,45 @@ ApplicationWindow {
         refreshSidebar()
     }
 
+    property bool exportInProgress: false
+    property bool exportToastDismissed: false
+    property int unreadNotifications: 0
+    property var latestNotification: null
+
+    function notify(title, message, tone) {
+        const entry = { heading: title, detail: message, tone: tone, stamp: Qt.formatTime(new Date(), "HH:mm:ss") }
+        notificationHistory.insert(0, entry)
+        if (notificationHistory.count > 50)
+            notificationHistory.remove(50)
+        if (!notificationPanel.visible)
+            unreadNotifications++
+        latestNotification = entry
+        toastTimer.restart()
+    }
+
+    ListModel { id: notificationHistory }
+    Timer { id: toastTimer; interval: 5500; onTriggered: root.latestNotification = null }
+
     Connections {
         target: root.appBackend
+        function onNotificationRaised(title, message) { root.notify(title, message, "info") }
+        function onSensorConnectionChanged(name, online) {
+            root.notify(online ? I18n.t("notifications.sensorConnected", "Sensor connected")
+                               : I18n.t("notifications.sensorDisconnected", "Sensor disconnected"),
+                        name, online ? "success" : "error")
+        }
+        function onCsvExportStarted() {
+            root.latestNotification = null
+            toastTimer.stop()
+            root.exportToastDismissed = false
+            root.exportInProgress = true
+        }
+        function onCsvExportFinished(error) {
+            root.exportInProgress = false
+            root.notify(error ? I18n.t("notifications.exportFailed", "Export failed")
+                              : I18n.t("notifications.exportDone", "Export complete"),
+                        error, error ? "error" : "success")
+        }
         function onLocationAdded() { root.refreshSidebar() }
         function onSensorAdded() { root.refreshSidebar() }
     }
@@ -206,8 +246,33 @@ ApplicationWindow {
             border.width: 1
             clip: true
 
+            Loader {
+                id: nodeRedPage
+                anchors.fill: parent
+                active: false
+                visible: root.activePage === "nodered"
+                source: "pages/NodeRed.qml"
+                onVisibleChanged: {
+                    if (visible && status === Loader.Ready)
+                        nodeRedEnter.restart()
+                }
+                onLoaded: {
+                    if (visible)
+                        nodeRedEnter.restart()
+                }
+                NumberAnimation on opacity {
+                    id: nodeRedEnter
+                    running: false
+                    from: 0
+                    to: 1
+                    duration: 220
+                    easing.type: Easing.OutCubic
+                }
+            }
+
             StackView {
                 id: mainStack
+                visible: root.activePage !== "nodered"
                 anchors.fill: parent
                 clip: true
                 initialItem: "pages/Dashboard.qml"
@@ -236,6 +301,23 @@ ApplicationWindow {
             spacing: 6
 
             WindowControl {
+                iconText: Icons.info
+                Accessible.name: I18n.t("notifications.title", "Notifications")
+                ToolTip.visible: hovered
+                ToolTip.text: Accessible.name
+                onClicked: notificationPanel.visible ? notificationPanel.close() : notificationPanel.open()
+                Rectangle {
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: 4
+                    width: 7
+                    height: 7
+                    radius: 4
+                    color: Theme.accent
+                    visible: root.unreadNotifications > 0
+                }
+            }
+            WindowControl {
                 iconText: Icons.minimize
                 onClicked: root.showMinimized()
             }
@@ -259,6 +341,156 @@ ApplicationWindow {
     MouseArea { anchors.left: parent.left; anchors.bottom: parent.bottom; width: 12; height: 12; z: 1001; cursorShape: Qt.SizeBDiagCursor; acceptedButtons: Qt.LeftButton; onPressed: root.startSystemResize(Qt.BottomLeftCorner) }
     MouseArea { anchors.right: parent.right; anchors.top: parent.top; width: 12; height: 12; z: 1001; cursorShape: Qt.SizeBDiagCursor; acceptedButtons: Qt.LeftButton; onPressed: root.startSystemResize(Qt.TopRightCorner) }
     MouseArea { anchors.left: parent.left; anchors.top: parent.top; width: 12; height: 12; z: 1001; cursorShape: Qt.SizeFDiagCursor; acceptedButtons: Qt.LeftButton; onPressed: root.startSystemResize(Qt.TopLeftCorner) }
+
+    component NotificationText: ColumnLayout {
+        property string heading: ""
+        property string detail: ""
+        property string tone: ""
+        property string stamp: ""
+        spacing: 4
+
+        Text {
+            Layout.fillWidth: true
+            text: parent.heading
+            font.bold: true
+            color: parent.tone === "error" ? Theme.danger : parent.tone === "success" ? Theme.success : Theme.text
+            wrapMode: Text.WordWrap
+            textFormat: Text.PlainText
+        }
+        Text {
+            Layout.fillWidth: true
+            visible: text.length > 0
+            text: parent.detail
+            color: Theme.subText
+            wrapMode: Text.Wrap
+            maximumLineCount: 4
+            elide: Text.ElideRight
+            textFormat: Text.PlainText
+        }
+        Text {
+            visible: text.length > 0
+            text: parent.stamp
+            color: Theme.subText
+            font.pixelSize: 11
+        }
+    }
+
+    Rectangle {
+        parent: root.contentItem
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.topMargin: 54
+        anchors.rightMargin: 16
+        z: 998
+        width: 320
+        height: toastContent.implicitHeight + 28
+        visible: !notificationPanel.visible && (root.latestNotification !== null ||
+            (root.exportInProgress && !root.exportToastDismissed))
+        color: Theme.dialog
+        border.color: Theme.border
+        radius: 10
+
+        NotificationText {
+            id: toastContent
+            x: 14
+            y: 14
+            width: parent.width - 60
+            heading: root.latestNotification ? root.latestNotification.heading
+                : I18n.t("common.exportingTelemetry", "Exporting telemetry")
+            detail: root.latestNotification ? root.latestNotification.detail
+                : I18n.t("common.writingExport", "Writing the export file…")
+            tone: root.latestNotification ? root.latestNotification.tone : "info"
+        }
+        WindowControl {
+            anchors.top: parent.top
+            anchors.right: parent.right
+            anchors.margins: 6
+            iconText: Icons.cancel
+            Accessible.name: I18n.t("notifications.dismiss", "Dismiss notification")
+            onClicked: {
+                if (root.latestNotification === null)
+                    root.exportToastDismissed = true
+                root.latestNotification = null
+                toastTimer.stop()
+            }
+        }
+
+    }
+
+    Popup {
+        id: notificationPanel
+        objectName: "notificationPanel"
+        parent: Overlay.overlay
+        x: parent.width - width - 16
+        y: 54
+        width: 360
+        height: Math.min(420, parent.height - y - 16)
+        padding: 16
+        focus: true
+        enter: Transition {
+            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 170 }
+            NumberAnimation { property: "scale"; from: 0.97; to: 1; duration: 170; easing.type: Easing.OutCubic }
+        }
+        exit: Transition {
+            NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 120 }
+        }
+        onAboutToShow: root.unreadNotifications = 0
+        background: Rectangle { color: Theme.dialog; radius: 10; border.color: Theme.border }
+
+        contentItem: ColumnLayout {
+            spacing: 12
+            RowLayout {
+                Layout.fillWidth: true
+                Text {
+                    Layout.fillWidth: true
+                    text: I18n.t("notifications.title", "Notifications")
+                    color: Theme.text
+                    font.pixelSize: 18
+                    font.bold: true
+                }
+                WindowControl {
+                    iconText: Icons.cancel
+                    Accessible.name: I18n.t("common.close", "Close")
+                    onClicked: notificationPanel.close()
+                }
+            }
+            Text {
+                visible: root.exportInProgress
+                text: I18n.t("common.exportingTelemetry", "Exporting telemetry")
+                color: Theme.accent
+            }
+            Text {
+                visible: notificationHistory.count === 0 && !root.exportInProgress
+                text: I18n.t("notifications.empty", "No notifications yet")
+                color: Theme.subText
+            }
+            ListView {
+                id: notificationList
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                spacing: 8
+                model: notificationHistory
+                ScrollBar.vertical: ScrollBar {}
+                delegate: Rectangle {
+                    width: notificationList.width - 10
+                    height: entryText.implicitHeight + 20
+                    radius: 8
+                    color: Theme.controlBg
+                    NotificationText {
+                        id: entryText
+                        x: 10
+                        y: 10
+                        width: parent.width - 20
+                        heading: model.heading
+                        detail: model.detail
+                        tone: model.tone
+                        stamp: model.stamp
+                    }
+                }
+            }
+        }
+    }
 
     AddLocation { id: locationDialog; appBackend: root.appBackend }
     SensorPicker {

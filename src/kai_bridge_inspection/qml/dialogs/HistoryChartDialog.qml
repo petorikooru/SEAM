@@ -8,8 +8,8 @@ import "../common"
 
 Popup {
     id: dialog
-    width: parent ? Math.min(920, Math.max(parent.width - 48, 420)) : 920
-    height: parent ? Math.min(640, Math.max(parent.height - 48, 420)) : 640
+    width: parent ? Math.min(1080, Math.max(parent.width - 48, 420)) : 1080
+    height: parent ? Math.min(760, Math.max(parent.height - 48, 420)) : 760
     modal: true
     dim: true
     Overlay.modal: Rectangle { color: "#CC000000" }
@@ -20,6 +20,51 @@ Popup {
     property bool metricSelectionEnabled: true
 
     property int presetMetricCount: 0
+    property int metricLookup: 0
+    property bool discoverMetrics: false
+    property bool panMode: true
+    property bool chartReady: false
+    property var fullView: null
+    property bool statusError: false
+
+    function useRecentRange() {
+        const now = new Date()
+        fromTime.setDateTime(new Date(now.getTime() - 3600000))
+        toTime.setDateTime(now)
+    }
+
+    function resetView() {
+        if (!chartReady)
+            return
+        setTimeRange(fullView.xMin, fullView.xMax)
+        axisY.min = fullView.yMin
+        axisY.max = fullView.yMax
+    }
+
+    function setTimeRange(start, end) {
+        const first = new Date(Math.floor(start))
+        const last = new Date(Math.max(Math.ceil(end), first.getTime() + 1000))
+        if (first > axisX.max)
+            axisX.max = last
+        axisX.min = first
+        axisX.max = last
+    }
+
+    function seconds(fields) {
+        const input = fields.value()
+        const format = "yyyy-MM-dd HH:mm:ss"
+        const date = Date.fromLocaleString(Qt.locale("en_US"), input, format)
+        return Qt.formatDateTime(date, format) === input ? date.getTime() / 1000 : NaN
+    }
+
+    onVisibleChanged: if (typeof backend !== "undefined") backend.setHistoryVisible(visible)
+    onClosed: {
+        metricLookup = 0
+        historyRequest = 0
+        refreshTimer.stop()
+        chartReady = false
+        panMode = true
+    }
 
     Component.onCompleted: presetMetricCount = metricModel.count
 
@@ -28,15 +73,25 @@ Popup {
             metricModel.remove(presetMetricCount, metricModel.count - presetMetricCount)
         if (typeof backend === "undefined")
             return false
-        const sensor = backend.getSensorData(name)
-        if (!sensor.profile || sensor.profile === "nemosense")
+        const sensor = backend.getSensorData(name, false)
+        discoverMetrics = !!sensor.profile && sensor.profile !== "nemosense"
+        if (!discoverMetrics)
             return false
-        const metrics = new Set(sensor.profile_metrics || [])
-        for (const metric of sensor.active_metrics || [])
-            metrics.add(metric)
-        for (const metric of metrics)
-            metricModel.append({label: metricLabel(metric), metrics: metric, yTitle: metricLabel(metric)})
-        return metrics.size > 0
+        appendMetrics(sensor.profile_metrics || [])
+        return metricModel.count > presetMetricCount
+    }
+
+    function appendMetrics(metrics) {
+        const existing = new Set()
+        for (let i = presetMetricCount; i < metricModel.count; ++i)
+            existing.add(metricModel.get(i).metrics)
+        for (const metric of metrics) {
+            if (!metric || existing.has(metric))
+                continue
+            const label = metricLabel(metric)
+            metricModel.append({label: label, metrics: metric, yTitle: label})
+            existing.add(metric)
+        }
     }
 
     function openBattery(name) {
@@ -49,9 +104,10 @@ Popup {
         // some status packets have arrived.
         metricSelectionEnabled = true
         metricCombo.currentIndex = 0
+        useRecentRange()
         rangeCombo.currentIndex = 0
         open()
-        refreshTimer.restart()
+        queueRefresh()
     }
 
     function openHistory(name) {
@@ -59,9 +115,27 @@ Popup {
         dialogTitle = "Historical Telemetry"
         metricSelectionEnabled = true
         metricCombo.currentIndex = loadSensorMetrics(name) ? presetMetricCount : 3
-        rangeCombo.currentIndex = 1
+        useRecentRange()
+        rangeCombo.currentIndex = 0
         open()
-        refreshTimer.restart()
+        queueRefresh()
+    }
+
+    function openMotion(name, metrics) {
+        sensorName = name
+        dialogTitle = I18n.t("sensor.motionHistory", "Motion history")
+        metricSelectionEnabled = true
+        loadSensorMetrics(name)
+        for (let i = 0; i < presetMetricCount; ++i) {
+            if (metricModel.get(i).metrics === metrics) {
+                metricCombo.currentIndex = i
+                break
+            }
+        }
+        useRecentRange()
+        rangeCombo.currentIndex = 0
+        open()
+        queueRefresh()
     }
 
     function metricLabel(metric) {
@@ -131,65 +205,116 @@ Popup {
         }
     }
 
+    property int historyRequest: 0
+    property int historyPercent: 0
+
+    Connections {
+        target: typeof backend !== "undefined" ? backend : null
+        function onHistoryMetricsReady(request, metrics) {
+            if (dialog.visible && request === dialog.metricLookup)
+                dialog.appendMetrics(metrics)
+        }
+        function onHistoryProgress(request, percent) {
+            if (dialog.visible && request === dialog.historyRequest)
+                dialog.historyPercent = percent
+        }
+        function onHistoryReady(request, results) {
+            if (dialog.visible && request === dialog.historyRequest) {
+                dialog.historyRequest = 0
+                dialog.displayHistory(results)
+            }
+        }
+    }
+
+    function queueRefresh() {
+        historyRequest = 0
+        refreshTimer.restart()
+    }
+
     function refreshChart() {
+        const rangeRow = rangeModel.get(rangeCombo.currentIndex)
+        const custom = rangeRow.hours < 0
+        const start = custom ? seconds(fromTime) : 0
+        const end = custom ? seconds(toTime) : 0
+        if (custom && (!Number.isFinite(start) || !Number.isFinite(end) || start <= 0 || end < start)) {
+            statusError = true
+            statusText.text = "Choose a valid start and end. End must be at or after start."
+            return
+        }
+
+        chartReady = false
         lineA.clear()
         lineB.clear()
         lineC.clear()
 
         if (typeof backend === "undefined" || !sensorName) {
+            statusError = true
             statusText.text = "Backend is not ready."
             emptyState.visible = true
             return
         }
 
         const metricRow = metricModel.get(metricCombo.currentIndex)
-        const rangeRow = rangeModel.get(rangeCombo.currentIndex)
+        const metrics = metricRow.metrics.split(",")
+        setSeriesVisibility(metrics)
+        emptyState.visible = false
+        statusError = false
+        statusText.text = "Loading history…"
+        historyPercent = 0
+        historyRequest = custom ? backend.requestHistoryRange(sensorName, metricRow.metrics, start, end + 59)
+                                : backend.requestHistoryHours(sensorName, metricRow.metrics, rangeRow.hours)
+        if (discoverMetrics) {
+            discoverMetrics = false
+            metricLookup = backend.requestHistoryMetrics(sensorName)
+        }
+    }
+
+    function displayHistory(results) {
+        const metricRow = metricModel.get(metricCombo.currentIndex)
         const metrics = metricRow.metrics.split(",")
         const series = [lineA, lineB, lineC]
 
         setSeriesVisibility(metrics)
 
         let totalCount = 0
-        let xMax = 0
+        let xMin = Infinity
+        let xMax = -Infinity
         let minY = Number.POSITIVE_INFINITY
         let maxY = Number.NEGATIVE_INFINITY
-        let xTitle = "Time"
-        let startLabel = ""
-        let endLabel = ""
         let emptyHint = ""
 
         for (let i = 0; i < metrics.length && i < series.length; i++) {
-            const meta = backend.loadHistorySeries(sensorName, metrics[i], rangeRow.days, series[i])
+            const meta = results[i]
             if (!meta || meta.empty) {
+                if (meta && meta.error) statusError = true
                 if (meta && meta.hint && !emptyHint) emptyHint = meta.hint
                 continue
             }
 
+            backend.setHistoryPoints(series[i], meta.points)
             totalCount += meta.count
+            xMin = Math.min(xMin, meta.minX)
             xMax = Math.max(xMax, meta.maxX)
             minY = Math.min(minY, meta.minY)
             maxY = Math.max(maxY, meta.maxY)
-            xTitle = meta.xTitle || xTitle
-            startLabel = startLabel || meta.startLabel
-            endLabel = meta.endLabel || endLabel
         }
 
         emptyState.visible = totalCount === 0
         if (totalCount === 0) {
-            axisX.min = 0
-            axisX.max = 1
             axisY.min = 0
             axisY.max = 1
-            statusText.text = emptyHint || "No telemetry data for this metric and range. Try All Data, or check whether VAR/DOUBLE status packets are being received."
+            statusText.text = emptyHint || "No telemetry data for this metric and range. Choose a different metric or widen the date range."
             return
         }
 
-        axisX.min = 0
-        axisX.max = Math.max(xMax, 1)
-        axisX.titleText = xTitle
+        setTimeRange(xMin, xMax)
         axisY.titleText = metricRow.yTitle
         applyYAxis(metrics[0], minY, maxY)
-        statusText.text = totalCount + " plotted points, " + startLabel + " to " + endLabel
+        fullView = {xMin: axisX.min.getTime(), xMax: axisX.max.getTime(), yMin: axisY.min, yMax: axisY.max}
+        chartReady = true
+        const format = "yyyy-MM-dd HH:mm:ss"
+        statusText.text = totalCount.toLocaleString(Qt.locale(), "f", 0) + " plotted points  •  " +
+            Qt.formatDateTime(new Date(xMin), format) + " to " + Qt.formatDateTime(new Date(xMax), format)
     }
 
     Timer {
@@ -216,12 +341,14 @@ Popup {
 
     ListModel {
         id: rangeModel
-        ListElement { label: "Last 24 Hours"; days: 1 }
-        ListElement { label: "Last 5 Days"; days: 5 }
-        ListElement { label: "Last 30 Days"; days: 30 }
-        ListElement { label: "Last 6 Months"; days: 180 }
-        ListElement { label: "Last 12 Months"; days: 365 }
-        ListElement { label: "All Data"; days: 0 }
+        ListElement { label: "Last 1 Hour"; hours: 1 }
+        ListElement { label: "Last 24 Hours"; hours: 24 }
+        ListElement { label: "Last 5 Days"; hours: 120 }
+        ListElement { label: "Last 30 Days"; hours: 720 }
+        ListElement { label: "Last 6 Months"; hours: 4320 }
+        ListElement { label: "Last 12 Months"; hours: 8760 }
+        ListElement { label: "All Data"; hours: 0 }
+        ListElement { label: "Custom date and time"; hours: -1 }
     }
 
 
@@ -236,7 +363,7 @@ Popup {
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 24
-        spacing: 16
+        spacing: 12
 
         RowLayout {
             Layout.fillWidth: true
@@ -270,21 +397,57 @@ Popup {
                 model: metricModel
                 enabled: dialog.metricSelectionEnabled
                 Layout.preferredWidth: 210
-                onActivated: refreshTimer.restart()
+                onActivated: queueRefresh()
             }
 
             WinComboBox {
                 textRole: "label"
                 id: rangeCombo
                 model: rangeModel
-                Layout.preferredWidth: 160
-                onActivated: refreshTimer.restart()
+                Layout.preferredWidth: 195
+                onActivated: if (rangeModel.get(currentIndex).hours >= 0) queueRefresh()
             }
 
             WinButton {
-                iconName: Icons.refresh; text: "Refresh"
+                iconName: Icons.refresh; text: "Apply"
                 Layout.preferredHeight: 36
-                onClicked: refreshTimer.restart()
+                onClicked: queueRefresh()
+            }
+        }
+
+        GridLayout {
+            visible: rangeModel.get(rangeCombo.currentIndex).hours < 0
+            Layout.fillWidth: true
+            columns: width >= 760 ? 2 : 1
+            columnSpacing: 20
+            rowSpacing: 8
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.preferredWidth: 370
+                spacing: 4
+                FieldLabel { labelText: "Start (local time)" }
+                DateTimeFields { id: fromTime; fieldName: "Start"; Layout.fillWidth: true }
+            }
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.preferredWidth: 370
+                spacing: 4
+                FieldLabel { labelText: "End (local time, inclusive)" }
+                DateTimeFields { id: toTime; fieldName: "End"; Layout.fillWidth: true }
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            WinButton { text: "Pan"; isAccent: dialog.panMode; enabled: dialog.chartReady; onClicked: dialog.panMode = true }
+            WinButton { text: "Select"; isAccent: !dialog.panMode; enabled: dialog.chartReady; onClicked: dialog.panMode = false }
+            WinButton { text: "Reset"; enabled: dialog.chartReady; onClicked: dialog.resetView() }
+            Label {
+                Layout.fillWidth: true
+                elide: Text.ElideRight
+                color: Theme.subText
+                text: dialog.panMode ? "Drag to pan" : "Drag a box to zoom"
             }
         }
 
@@ -311,14 +474,22 @@ Popup {
                 margins.left: 0
                 margins.right: 0
 
-                ValueAxis {
+                DateTimeAxis {
                     id: axisX
-                    min: 0
-                    max: 1
-                    titleText: "Time"
+                    visible: dialog.chartReady
+                    min: new Date(0)
+                    max: new Date(1000)
+                    tickCount: historyChart.width >= 750 ? 5 : 3
+                    titleText: "Local time"
                     labelsColor: Theme.subText
                     gridLineColor: Theme.border
-                    labelFormat: "%.1f"
+                    format: {
+                        const span = max.getTime() - min.getTime()
+                        if (span >= 86400000)
+                            return "yyyy-MM-dd"
+                        const clock = span < 600000 ? "HH:mm:ss" : "HH:mm"
+                        return min.toDateString() === max.toDateString() ? clock : "MM-dd " + clock
+                    }
                 }
 
                 ValueAxis {
@@ -334,6 +505,55 @@ Popup {
                 LineSeries { id: lineA; axisX: axisX; axisY: axisY; width: 2.2; useOpenGL: false }
                 LineSeries { id: lineB; axisX: axisX; axisY: axisY; width: 2.2; useOpenGL: false }
                 LineSeries { id: lineC; axisX: axisX; axisY: axisY; width: 2.2; useOpenGL: false }
+            }
+
+            MouseArea {
+                id: chartDrag
+                anchors.fill: parent
+                enabled: dialog.chartReady
+                hoverEnabled: true
+                cursorShape: !containsMouse || !insidePlot(mouseX, mouseY)
+                    ? Qt.ArrowCursor : dialog.panMode
+                    ? (pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor) : Qt.CrossCursor
+                property point origin
+                property point previous
+
+                function insidePlot(x, y) {
+                    const plot = historyChart.plotArea
+                    return x >= plot.x && x <= plot.x + plot.width &&
+                        y >= plot.y && y <= plot.y + plot.height
+                }
+
+                onPressed: function(mouse) {
+                    origin = Qt.point(mouse.x, mouse.y)
+                    mouse.accepted = insidePlot(origin.x, origin.y)
+                    previous = origin
+                }
+                onPositionChanged: function(mouse) {
+                    if (!pressed || !dialog.panMode)
+                        return
+                    historyChart.scrollLeft(previous.x - mouse.x)
+                    historyChart.scrollUp(mouse.y - previous.y)
+                    previous = Qt.point(mouse.x, mouse.y)
+                }
+                onReleased: {
+                    if (!dialog.panMode && selection.width >= 10 && selection.height >= 10)
+                        historyChart.zoomIn(Qt.rect(selection.x, selection.y, selection.width, selection.height))
+                }
+            }
+
+            Rectangle {
+                id: selection
+                visible: chartDrag.pressed && !dialog.panMode
+                readonly property rect plot: historyChart.plotArea
+                readonly property real pointerX: Math.min(plot.x + plot.width, Math.max(plot.x, chartDrag.mouseX))
+                readonly property real pointerY: Math.min(plot.y + plot.height, Math.max(plot.y, chartDrag.mouseY))
+                x: Math.min(chartDrag.origin.x, pointerX)
+                y: Math.min(chartDrag.origin.y, pointerY)
+                width: Math.abs(chartDrag.origin.x - pointerX)
+                height: Math.abs(chartDrag.origin.y - pointerY)
+                color: Qt.alpha(Theme.accent, 0.2)
+                border.color: Theme.accent
             }
 
             Rectangle {
@@ -360,13 +580,63 @@ Popup {
             Layout.fillWidth: true
             spacing: 12
 
-            Label {
-                id: statusText
-                text: "Choose a metric and range."
-                color: Theme.subText
-                font.pixelSize: 12
-                elide: Text.ElideRight
+            Rectangle {
                 Layout.fillWidth: true
+                implicitHeight: statusContent.implicitHeight + 20
+                radius: 8
+                color: dialog.statusError ? Qt.alpha(Theme.danger, 0.12) : Theme.controlBg
+                border.color: dialog.statusError ? Theme.danger : Theme.border
+
+                RowLayout {
+                    id: statusContent
+                    anchors.fill: parent
+                    anchors.margins: 10
+                    spacing: 10
+                    LucideIcon {
+                        icon: dialog.statusError ? Icons.warning : Icons.info
+                        color: dialog.statusError ? Theme.danger : Theme.info
+                        size: Theme.iconSizeSmall
+                    }
+                    Label {
+                        id: statusText
+                        text: "Choose a metric and range."
+                        color: Theme.text
+                        font.pixelSize: 14
+                        font.bold: true
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
+                    ProgressBar {
+                        id: historyProgressBar
+                        visible: dialog.historyRequest > 0
+                        Layout.preferredWidth: Math.min(130, statusContent.width * 0.25)
+                        to: 100
+                        value: dialog.historyPercent
+                        Accessible.name: "History loading progress"
+                        background: Rectangle {
+                            implicitHeight: 8
+                            radius: 4
+                            color: Theme.dialog
+                            border.color: Theme.borderLight
+                        }
+                        contentItem: Item {
+                            implicitHeight: 8
+                            Rectangle {
+                                width: parent.width * historyProgressBar.visualPosition
+                                height: parent.height
+                                radius: 4
+                                color: Theme.accent
+                                Behavior on width { NumberAnimation { duration: 100 } }
+                            }
+                        }
+                    }
+                    Label {
+                        visible: historyProgressBar.visible
+                        text: dialog.historyPercent + "%"
+                        color: Theme.text
+                        font.bold: true
+                    }
+                }
             }
 
             WinButton {

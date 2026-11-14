@@ -130,7 +130,7 @@ Rectangle {
                 WinButton {
                     objectName: "sensorExportButton"
                     visible: !card.editing
-                    iconName: Icons.download; text: I18n.t("common.exportCsv", "Export CSV")
+                    iconName: Icons.download; text: I18n.t("sensor.exportAllParameters", "Export All Parameters")
                     isAccent: true
                     implicitHeight: 36
                     onClicked: card.exportRequested()

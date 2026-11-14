@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtLocation
 import QtPositioning
+import Qt.labs.platform as Platform
 
 import "../"
 import "../common"
@@ -20,6 +21,7 @@ Popup {
     anchors.centerIn: Overlay.overlay
     Overlay.modal: Rectangle { color: "#B8000000" }
 
+    property bool deviceTab: false
     property string sensorName: ""
     property real mapLat: 0
     property real mapLon: 0
@@ -81,8 +83,9 @@ Popup {
     }
 
     function loadSettings() {
+        deviceTab = false
         saveError.text = ""
-        sensorSnapshot = typeof backend !== "undefined" ? (backend.getSensorData(sensorName) || ({})) : ({})
+        sensorSnapshot = typeof backend !== "undefined" ? (backend.getSensorData(sensorName, false) || ({})) : ({})
         deviceIdField.text = sensorSnapshot.device_id || ""
         streamForm.load(sensorSnapshot.profile || "nemosense", sensorSnapshot.streams || [], sensorSnapshot.acquisition || "")
         mapLat = Number(sensorSnapshot.gnss_lat || sensorSnapshot.GNSS_LAT || 0)
@@ -154,7 +157,8 @@ Popup {
             }
 
             WinButton {
-                text: Icons.cancel
+                iconName: Icons.cancel
+                Accessible.name: I18n.t("common.close", "Close")
                 isQuiet: true
                 Layout.preferredWidth: 38
                 Layout.preferredHeight: 38
@@ -162,7 +166,218 @@ Popup {
             }
         }
 
+        RowLayout {
+            visible: (dialog.sensorSnapshot.profile || "").startsWith("beandevice_")
+                     && dialog.sensorSnapshot.acquisition === "streaming"
+            WinButton { text: "General"; isAccent: !dialog.deviceTab; onClicked: dialog.deviceTab = false }
+            WinButton { text: "Device configuration"; isAccent: dialog.deviceTab; onClicked: { dialog.deviceTab = true; beanRate.model = []; backend.loadBeanRates(dialog.sensorName) } }
+        }
+
         ScrollView {
+            visible: dialog.deviceTab
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            contentWidth: availableWidth
+            clip: true
+            GridLayout {
+                id: beanControls
+                width: parent.width
+                columns: width >= 720 ? 2 : 1
+                columnSpacing: 24
+                rowSpacing: 20
+                property int progress: -1
+                property string downloadFeedback: ""
+
+                Layout.fillWidth: true
+                property bool pending: false
+                property string feedback: ""
+                property bool downloading: false
+
+                Connections {
+                    target: backend
+                    function onBeanRatesLoaded(name, rates) {
+                        if (name === dialog.sensorName)
+                            beanRate.model = rates.map(rate => String(rate))
+                    }
+                    function onBeanDownloadProgress(name, percent) {
+                        if (name === dialog.sensorName && beanControls.downloading)
+                            beanControls.progress = Math.max(beanControls.progress, percent)
+                    }
+                    function onBeanDownloadFinished(name, saved, error) {
+                        if (name !== dialog.sensorName) return
+                        beanControls.downloading = false
+                        beanControls.progress = saved ? 100 : -1
+                        beanControls.downloadFeedback = saved ? "100% · Raw recording saved." : "Download failed. " + error
+                    }
+                    function onBeanCommandFinished(name, outcome) {
+                        if (name !== dialog.sensorName)
+                            return
+                        beanControls.pending = false
+                        beanControls.feedback = outcome === "queued"
+                            ? I18n.t("sensorSettings.otacQueued", "Queued in Node-RED. Check the sensor’s reported sample rate.")
+                            : I18n.t("sensorSettings.otacUnconfirmed", "Node-RED did not confirm queuing the request.")
+                    }
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    Layout.alignment: Qt.AlignTop
+                    FieldLabel { labelText: I18n.t("sensorSettings.otacTitle", "Remote streaming configuration") }
+                    FieldLabel { labelText: I18n.t("sensorSettings.otacRate", "Sample rate (Hz)") }
+                    WinComboBox {
+                        id: beanRate
+                        Layout.fillWidth: true
+                        model: []
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        visible: beanRate.count === 0
+                        color: Theme.subText
+                        text: "No sample rates loaded. Check the Node-RED allowlist."
+                    }
+                    FieldLabel { labelText: "Recording mode" }
+                    WinComboBox {
+                        id: beanMode
+                        Layout.fillWidth: true
+                        model: ["TX", "LOG", "TX & LOG", "SA"]
+                    }
+                    FieldLabel { visible: beanPattern.visible; labelText: "Streaming pattern" }
+                    WinComboBox {
+                        id: beanPattern
+                        visible: beanMode.currentIndex !== 3
+                        Layout.fillWidth: true
+                        model: ["Continuous", "One shot", "Burst"]
+                    }
+                    WinComboBox {
+                        id: beanForward
+                        visible: beanMode.currentIndex === 0 || beanMode.currentIndex === 2
+                        Layout.fillWidth: true
+                        model: ["Store-and-forward off", "Store-and-forward on"]
+                    }
+                    FieldLabel { visible: beanCycle.visible; labelText: "Cycle (seconds)" }
+                    WinTextField {
+                        id: beanCycle
+                        visible: beanMode.currentIndex === 3 || beanPattern.currentIndex === 2
+                        text: "7200"
+                        validator: IntValidator { bottom: 1; top: 16777215 }
+                    }
+                    FieldLabel { visible: beanDuration.visible; labelText: "Acquisition duration (seconds)" }
+                    WinTextField {
+                        id: beanDuration
+                        visible: beanCycle.visible || beanPattern.currentIndex === 1
+                        text: "60"
+                        validator: IntValidator { bottom: 1; top: 16777215 }
+                    }
+                    WinButton {
+                        enabled: !beanControls.pending && !beanControls.downloading && beanRate.currentIndex >= 0
+                                 && (!beanDuration.visible || beanDuration.acceptableInput)
+                                 && (!beanCycle.visible || (beanCycle.acceptableInput
+                                     && Number(beanDuration.text) <= Number(beanCycle.text)))
+                        text: I18n.t("sensorSettings.otacUpdate", "Update Sensor Config")
+                        isAccent: true
+                        onClicked: {
+                            beanControls.pending = backend.applyBeanStreaming(
+                                dialog.sensorName, Number(beanRate.currentText), ["tx", "log", "tx_log", "sa"][beanMode.currentIndex],
+                                beanForward.visible && beanForward.currentIndex === 1,
+                                Number(beanCycle.text), Number(beanDuration.text),
+                                ["continuous", "one_shot", "burst"][beanPattern.currentIndex])
+                            beanControls.feedback = beanControls.pending
+                                ? I18n.t("sensorSettings.otacSending", "Sending to Node-RED…")
+                                : I18n.t("sensorSettings.otacInvalid", "Check the saved device MAC ID and Node-RED address.")
+                        }
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        visible: text.length > 0
+                        text: beanControls.feedback
+                        wrapMode: Text.WordWrap
+                        color: Theme.subText
+                    }
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    Layout.alignment: Qt.AlignTop
+                    FieldLabel { labelText: "Stored recordings" }
+                    FieldLabel { labelText: "Recording index" }
+                    WinTextField {
+                        id: recordingIndex
+                        text: "0"
+                        validator: IntValidator { bottom: 0; top: 65535 }
+                    }
+                    WinButton {
+                        text: "Download raw recording"
+                        enabled: !beanControls.pending && !beanControls.downloading
+                                 && recordingIndex.acceptableInput
+                        onClicked: recordingSave.open()
+                    }
+                    Platform.FileDialog {
+                        id: recordingSave
+                        fileMode: Platform.FileDialog.SaveFile
+                        defaultSuffix: "beanframes"
+                        onAccepted: {
+                            beanControls.progress = -1
+                            beanControls.downloading = backend.downloadBeanRecording(
+                                dialog.sensorName, Number(recordingIndex.text), recordingSave.file)
+                            beanControls.downloadFeedback = beanControls.downloading
+                                ? "Downloading recording…" : "Could not start download."
+                        }
+                    }
+                    ProgressBar {
+                        id: downloadProgress
+                        Layout.fillWidth: true
+                        visible: beanControls.downloading || beanControls.progress === 100
+                        from: 0
+                        to: 100
+                        value: Math.max(0, beanControls.progress)
+                        indeterminate: beanControls.downloading && beanControls.progress < 0
+                        Accessible.name: "Recording download progress"
+                        background: Rectangle {
+                            implicitHeight: 12
+                            radius: 6
+                            color: Theme.controlBg
+                            border.color: Theme.border
+                        }
+                        contentItem: Item {
+                            implicitHeight: 12
+                            clip: true
+                            Rectangle {
+                                width: parent.width * (downloadProgress.indeterminate ? 0.25 : downloadProgress.visualPosition)
+                                height: parent.height
+                                radius: 6
+                                color: beanControls.progress === 100 ? Theme.success : Theme.accent
+                                SequentialAnimation on x {
+                                    running: downloadProgress.visible && downloadProgress.indeterminate
+                                    loops: Animation.Infinite
+                                    NumberAnimation { from: 0; to: downloadProgress.availableWidth * 0.75; duration: 850 }
+                                    NumberAnimation { to: 0; duration: 0 }
+                                }
+                                Binding on x {
+                                    when: !downloadProgress.indeterminate
+                                    value: 0
+                                }
+                            }
+                        }
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        visible: text.length > 0
+                        color: Theme.subText
+                        text: beanControls.downloading && beanControls.progress >= 0
+                            ? "Downloading recording · " + beanControls.progress + "%"
+                            : beanControls.downloadFeedback
+                    }
+                }
+            }
+
+        }
+
+        ScrollView {
+            visible: !dialog.deviceTab
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
