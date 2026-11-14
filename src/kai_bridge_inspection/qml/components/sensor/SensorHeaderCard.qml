@@ -79,11 +79,10 @@ Rectangle {
                     Layout.fillWidth: true
                     spacing: 7
 
-                    Text {
-                        text: Icons.location
-                        font.family: Icons.fontFamily
+                    LucideIcon {
+                        icon: Icons.location
                         color: Theme.accent
-                        font.pixelSize: Theme.iconSizeSmall
+                        size: Theme.iconSizeSmall
                     }
 
                     Text {

@@ -41,7 +41,7 @@ where = ["src"]
 kai_bridge_inspection = [
     "qml/**/*.qml",
     "qml/qmldir",
-    "qml/assets/*.svg",
+    "qml/assets/*.svg", "qml/assets/icons/lucide/*.svg", "qml/assets/icons/lucide/LICENSE",
     "qml/assets/*.ico",
     "qml/assets/fonts/*.md",
     "qml/assets/fonts/*.ttf",

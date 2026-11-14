@@ -216,7 +216,7 @@ Page {
                     Layout.preferredHeight: 46
                     radius: 12
                     color: Theme.accentSoft
-                    Text { anchors.centerIn: parent; text: Icons.location; font.family: Icons.fontFamily; font.pixelSize: Theme.iconSizeLarge; color: Theme.accent }
+                    LucideIcon { anchors.centerIn: parent; icon: Icons.location; size: Theme.iconSizeLarge; color: Theme.accent }
                 }
 
                 ColumnLayout {
@@ -301,7 +301,7 @@ Page {
                         RowLayout {
                             Layout.fillWidth: true
                             Text { text: I18n.t("location.overview", "Location overview"); color: Theme.text; font.pixelSize: 18; font.bold: true; Layout.fillWidth: true }
-                            Text { text: Icons.location; font.family: Icons.fontFamily; color: Theme.accent; font.pixelSize: Theme.iconSizeSmall }
+                            LucideIcon { icon: Icons.location; color: Theme.accent; size: Theme.iconSizeSmall }
                         }
 
                         Text {
@@ -376,7 +376,7 @@ Page {
                                                 geocodeModel.update()
                                             }
                                         }
-                                        Text { anchors.left: parent.left; anchors.leftMargin: 13; anchors.verticalCenter: parent.verticalCenter; text: Icons.search; font.family: Icons.fontFamily; color: mapSearchField.activeFocus ? Theme.accent : Theme.mutedText; font.pixelSize: Theme.iconSizeSmall }
+                                        LucideIcon { anchors.left: parent.left; anchors.leftMargin: 13; anchors.verticalCenter: parent.verticalCenter; icon: Icons.search; color: mapSearchField.activeFocus ? Theme.accent : Theme.mutedText; size: Theme.iconSizeSmall }
                                     }
 
                                     Popup {
@@ -447,7 +447,7 @@ Page {
                                         id: locationPin
                                         width: 42
                                         height: 52
-                                        Rectangle { anchors.horizontalCenter: parent.horizontalCenter; width: 38; height: 38; radius: 19; color: Theme.accent; border.color: "white"; border.width: 3; Text { anchors.centerIn: parent; text: Icons.location; font.family: Icons.fontFamily; color: Theme.accentText; font.pixelSize: Theme.iconSizeSmall } }
+                                        Rectangle { anchors.horizontalCenter: parent.horizontalCenter; width: 38; height: 38; radius: 19; color: Theme.accent; border.color: "white"; border.width: 3; LucideIcon { anchors.centerIn: parent; icon: Icons.location; color: Theme.accentText; size: Theme.iconSizeSmall } }
                                         Rectangle { anchors.horizontalCenter: parent.horizontalCenter; anchors.top: parent.top; anchors.topMargin: 34; width: 10; height: 10; rotation: 45; color: Theme.accent }
                                     }
                                 }
@@ -588,14 +588,14 @@ Page {
                                         anchors.leftMargin: 11
                                         anchors.rightMargin: 9
                                         spacing: 9
-                                        Text { text: Icons.sensor; font.family: Icons.fontFamily; color: page.selectedSensorIndex === index ? Theme.accentText : Theme.info; font.pixelSize: Theme.iconSizeSmall }
+                                        LucideIcon { icon: Icons.sensor; color: page.selectedSensorIndex === index ? Theme.accentText : Theme.info; size: Theme.iconSizeSmall }
                                         ColumnLayout {
                                             Layout.fillWidth: true
                                             spacing: 0
                                             Text { text: modelData; color: page.selectedSensorIndex === index ? Theme.accentText : Theme.text; font.pixelSize: 12; font.bold: true; elide: Text.ElideRight; Layout.fillWidth: true }
                                             Text { text: I18n.t("location.inspectionSensor", "Inspection sensor"); color: page.selectedSensorIndex === index ? Theme.accentSubText : Theme.subText; font.pixelSize: 10; elide: Text.ElideRight; Layout.fillWidth: true }
                                         }
-                                        Text { visible: !page.compact; text: Icons.chevronRight; font.family: Icons.fontFamily; color: page.selectedSensorIndex === index ? Theme.accentText : Theme.mutedText; font.pixelSize: 10 }
+                                        LucideIcon { visible: !page.compact; icon: Icons.chevronRight; color: page.selectedSensorIndex === index ? Theme.accentText : Theme.mutedText; size: 10 }
                                     }
                                 }
                             }
@@ -730,7 +730,7 @@ Page {
                                 anchors.centerIn: parent
                                 visible: page.selectedSensorName.length === 0
                                 spacing: 10
-                                Text { text: Icons.sensor; font.family: Icons.fontFamily; color: Theme.mutedText; opacity: 0.45; font.pixelSize: 46; Layout.alignment: Qt.AlignHCenter }
+                                LucideIcon { icon: Icons.sensor; color: Theme.mutedText; opacity: 0.45; size: 46; Layout.alignment: Qt.AlignHCenter }
                                 Text { text: page.sensorList.length === 0 ? "No sensors are installed at this location." : "Select a sensor to view telemetry."; color: Theme.subText; font.pixelSize: 13; Layout.alignment: Qt.AlignHCenter }
                                 ActionButton { visible: page.sensorList.length === 0; text: Icons.add + " Add first sensor"; isAccent: true; Layout.alignment: Qt.AlignHCenter; onClicked: page.addSensor() }
                             }

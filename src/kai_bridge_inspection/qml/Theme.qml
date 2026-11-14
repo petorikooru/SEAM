@@ -10,26 +10,7 @@ QtObject {
 
     readonly property string fontFamily: Qt.application.font.family
 
-    // Nerd Font is intentionally resolved from the operating system. The application
-    // does not require a bundled font and remains readable when no Nerd Font is installed.
-    readonly property var installedFontFamilies: Qt.fontFamilies()
-    readonly property string iconFontFamily: resolveIconFont([
-        "Symbols Nerd Font Mono",
-        "Symbols Nerd Font",
-        "JetBrainsMono Nerd Font",
-        "JetBrainsMono Nerd Font Mono",
-        "FiraCode Nerd Font",
-        "FiraCode Nerd Font Mono",
-        "Hack Nerd Font",
-        "Hack Nerd Font Mono",
-        "CaskaydiaCove Nerd Font",
-        "CaskaydiaCove Nerd Font Mono",
-        "Font Awesome 6 Free",
-        "Font Awesome 6 Free Solid",
-        "Font Awesome 5 Free",
-        "Font Awesome 5 Free Solid"
-    ])
-    readonly property bool nerdFontAvailable: iconFontFamily.length > 0
+    // Icon sizes consumed by LucideIcon (icons are bundled SVGs, see Icons.qml).
     readonly property int iconSizeSmall: 12
     readonly property int iconSize: 14
     readonly property int iconSizeLarge: 16
@@ -79,24 +60,6 @@ QtObject {
 
     readonly property color chartGrid: darkMode ? "#354A61" : "#D8E0EA"
     readonly property color chartLabel: subText
-
-    function resolveIconFont(candidates) {
-        for (let i = 0; i < candidates.length; ++i) {
-            if (installedFontFamilies.indexOf(candidates[i]) >= 0)
-                return candidates[i]
-        }
-        // Also accept user-loaded Nerd Font or Font Awesome family names that
-        // are not in the preferred-family list above.
-        for (let j = 0; j < installedFontFamilies.length; ++j) {
-            const family = String(installedFontFamilies[j])
-            const normalized = family.toLowerCase()
-            if (normalized.indexOf("nerd font") >= 0 ||
-                    normalized.indexOf("font awesome") >= 0 ||
-                    normalized.indexOf("symbols nerd") >= 0)
-                return family
-        }
-        return ""
-    }
 
     function applyTheme(name) {
         const normalized = name === "light" || name === "kaiLight" ? "light" : "dark"

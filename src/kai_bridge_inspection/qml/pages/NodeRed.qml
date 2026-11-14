@@ -97,11 +97,10 @@ Page {
                     Layout.preferredHeight: 34
                     radius: 9
                     color: Theme.accentSoft
-                    Text {
+                    LucideIcon {
                         anchors.centerIn: parent
-                        text: Icons.nodeRed
-                        font.family: Icons.fontFamily
-                        font.pixelSize: Theme.iconSizeSmall
+                        icon: Icons.nodeRed
+                        size: Theme.iconSizeSmall
                         color: Theme.accent
                     }
                 }
@@ -169,10 +168,9 @@ Page {
                 anchors.centerIn: parent
                 visible: webView.url.toString() === "" && !configPanel.visible
                 spacing: 12
-                Text {
-                    text: Icons.nodeRed
-                    font.family: Icons.fontFamily
-                    font.pixelSize: 52
+                LucideIcon {
+                    icon: Icons.nodeRed
+                    size: 52
                     color: Theme.mutedText
                     opacity: 0.5
                     Layout.alignment: Qt.AlignHCenter
@@ -296,11 +294,10 @@ Page {
                             anchors.fill: parent
                             anchors.margins: 12
                             spacing: 10
-                            Text {
-                                text: Icons.nodeRed
-                                font.family: Icons.fontFamily
+                            LucideIcon {
+                                icon: Icons.nodeRed
                                 color: Theme.info
-                                font.pixelSize: 17
+                                size: 17
                             }
                             Text {
                                 text: I18n.t("nodeRed.example", "Editor: http://127.0.0.1:1880\nSensor stream: ws://127.0.0.1:1880/kai/sensors/nemosense-01")

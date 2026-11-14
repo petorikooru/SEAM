@@ -121,7 +121,7 @@ Popup {
                 Layout.preferredHeight: 44
                 radius: 12
                 color: Theme.accentSoft
-                Text { anchors.centerIn: parent; text: Icons.settings; font.family: Icons.fontFamily; font.pixelSize: Theme.iconSizeLarge; color: Theme.accent }
+                LucideIcon { anchors.centerIn: parent; icon: Icons.settings; size: Theme.iconSizeLarge; color: Theme.accent }
             }
 
             ColumnLayout {
@@ -240,7 +240,7 @@ Popup {
                                 RowLayout {
                                     Layout.fillWidth: true
                                     Text { text: I18n.t("sensorSettings.connection", "Node-RED identity mapping"); color: Theme.text; font.pixelSize: 17; font.bold: true; Layout.fillWidth: true }
-                                    Text { text: Icons.nodeRed; font.family: Icons.fontFamily; color: Theme.accent; font.pixelSize: Theme.iconSizeSmall }
+                                    LucideIcon { icon: Icons.nodeRed; color: Theme.accent; size: Theme.iconSizeSmall }
                                 }
                                 Text {
                                     text: I18n.t("sensorSettings.connectionHelpNodeRed", "Match device_id to the canonical JSON and the WebSocket path to this sensor's dedicated Node-RED listener. MQTT, credentials, subscriptions, and Sparkplug processing remain in Node-RED.")
@@ -371,7 +371,7 @@ Popup {
                                                     color: Theme.accent
                                                     border.color: "white"
                                                     border.width: 3
-                                                    Text { anchors.centerIn: parent; text: Icons.location; font.family: Icons.fontFamily; color: Theme.accentText; font.pixelSize: Theme.iconSizeSmall }
+                                                    LucideIcon { anchors.centerIn: parent; icon: Icons.location; color: Theme.accentText; size: Theme.iconSizeSmall }
                                                 }
                                                 Rectangle { anchors.horizontalCenter: parent.horizontalCenter; anchors.top: parent.top; anchors.topMargin: 32; width: 10; height: 10; rotation: 45; color: Theme.accent }
                                             }

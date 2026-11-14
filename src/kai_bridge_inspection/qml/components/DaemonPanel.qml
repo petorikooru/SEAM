@@ -89,11 +89,10 @@ Rectangle {
 
         RowLayout {
             Layout.fillWidth: true
-            Text {
-                text: Icons.nodeRed
-                font.family: Icons.fontFamily
+            LucideIcon {
+                icon: Icons.nodeRed
                 color: daemonController.mqttConnected ? Theme.success : Theme.warning
-                font.pixelSize: Theme.iconSize
+                size: Theme.iconSize
             }
             Text {
                 Layout.fillWidth: true

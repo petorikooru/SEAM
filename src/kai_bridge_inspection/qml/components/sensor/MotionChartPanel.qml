@@ -64,12 +64,11 @@ Rectangle {
                         Layout.preferredHeight: 30
                         radius: 8
                         color: Qt.rgba(panel.iconColor.r, panel.iconColor.g, panel.iconColor.b, 0.14)
-                        Text {
+                        LucideIcon {
                             anchors.centerIn: parent
-                            text: panel.iconText
-                            font.family: Icons.fontFamily
+                            icon: panel.iconText
                             color: panel.iconColor
-                            font.pixelSize: Theme.iconSize
+                            size: Theme.iconSize
                         }
                     }
 

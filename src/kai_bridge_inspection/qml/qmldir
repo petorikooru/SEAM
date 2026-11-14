@@ -10,3 +10,4 @@ WinButton    1.0 ./common/WinButton.qml
 
 Main 1.0 Main.qml
 DaemonPanel 1.0 ./components/DaemonPanel.qml
+LucideIcon 1.0 LucideIcon.qml

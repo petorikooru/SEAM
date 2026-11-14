@@ -27,12 +27,11 @@ Rectangle {
             Layout.preferredHeight: 34
             radius: 9
             color: Qt.rgba(card.accentColor.r, card.accentColor.g, card.accentColor.b, 0.14)
-            Text {
+            LucideIcon {
                 anchors.centerIn: parent
-                text: card.iconText
-                font.family: Icons.fontFamily
+                icon: card.iconText
                 color: card.accentColor
-                font.pixelSize: Theme.iconSize
+                size: Theme.iconSize
             }
         }
 

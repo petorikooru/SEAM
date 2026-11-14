@@ -23,11 +23,10 @@ Button {
     contentItem: RowLayout {
         spacing: 8
 
-        Text {
+        LucideIcon {
             visible: control._iconChar !== ""
-            text: control._iconChar
-            font.family: Icons.fontFamily
-            font.pixelSize: Theme.iconSize
+            icon: control._iconChar
+            size: Theme.iconSize
             color: label.color
             Layout.alignment: Qt.AlignVCenter
         }

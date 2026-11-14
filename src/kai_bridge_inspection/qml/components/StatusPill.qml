@@ -22,11 +22,10 @@ Rectangle {
         anchors.centerIn: parent
         spacing: 7
 
-        Text {
+        LucideIcon {
             visible: pill.iconText.length > 0
-            text: pill.iconText
-            font.family: Icons.fontFamily
-            font.pixelSize: 11
+            icon: pill.iconText
+            size: 11
             color: pill.accentColor
         }
 

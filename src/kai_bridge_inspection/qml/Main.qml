@@ -103,13 +103,10 @@ ApplicationWindow {
                    control.hovered ? Theme.controlHover : "transparent"
         }
 
-        contentItem: Text {
-            text: control.iconText
-            font.family: Icons.fontFamily
-            font.pixelSize: Theme.iconSizeSmall
+        contentItem: LucideIcon {
+            icon: control.iconText
+            size: Theme.iconSizeSmall
             color: control.danger && control.hovered ? "white" : Theme.text
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
         }
     }
 

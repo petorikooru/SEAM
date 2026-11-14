@@ -91,7 +91,7 @@ Item {
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: 10
-                                Text { text: Icons.language; font.family: Icons.fontFamily; font.pixelSize: Theme.iconSizeLarge; color: Theme.accent }
+                                LucideIcon { icon: Icons.language; size: Theme.iconSizeLarge; color: Theme.accent }
                                 Text { text: I18n.t("settings.language", "Language"); font.pixelSize: 18; font.bold: true; color: Theme.text; Layout.fillWidth: true }
                             }
                             Text { text: I18n.t("settings.languageHelp", "Choose the interface language. Translation text is stored in editable JSON files."); font.pixelSize: 14; color: Theme.subText; wrapMode: Text.WordWrap; Layout.fillWidth: true }
@@ -121,7 +121,7 @@ Item {
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: 10
-                                Text { text: Icons.info; font.family: Icons.fontFamily; font.pixelSize: Theme.iconSize; color: Theme.info }
+                                LucideIcon { icon: Icons.info; size: Theme.iconSize; color: Theme.info }
                                 Text {
                                     Layout.fillWidth: true
                                     text: Theme.nerdFontAvailable

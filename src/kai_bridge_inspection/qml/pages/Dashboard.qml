@@ -123,11 +123,10 @@ Page {
         contentItem: Row {
             anchors.centerIn: parent
             spacing: control.iconText.length > 0 ? 8 : 0
-            Text {
+            LucideIcon {
                 visible: control.iconText.length > 0
-                text: control.iconText
-                font.family: Icons.fontFamily
-                font.pixelSize: Theme.iconSizeSmall
+                icon: control.iconText
+                size: Theme.iconSizeSmall
                 color: !control.enabled ? Theme.disabledText :
                        control.accent ? Theme.accentText :
                        control.danger ? Theme.danger : Theme.text
@@ -181,11 +180,10 @@ Page {
                     Layout.preferredHeight: 42
                     radius: 10
                     color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, Theme.darkMode ? 0.16 : 0.11)
-                    Text {
+                    LucideIcon {
                         anchors.centerIn: parent
-                        text: Icons.location
-                        font.family: Icons.fontFamily
-                        font.pixelSize: 17
+                        icon: Icons.location
+                        size: 17
                         color: Theme.accent
                     }
                 }
@@ -234,10 +232,9 @@ Page {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 8
-                Text {
-                    text: Icons.mapPin
-                    font.family: Icons.fontFamily
-                    font.pixelSize: Theme.iconSizeSmall
+                LucideIcon {
+                    icon: Icons.mapPin
+                    size: Theme.iconSizeSmall
                     color: Theme.mutedText
                 }
                 Text {
@@ -445,13 +442,12 @@ Page {
                             color: searchField.activeFocus ? Theme.controlFocus : Theme.controlBg
                             border.color: searchField.activeFocus ? Theme.accent : Theme.border
                             border.width: searchField.activeFocus ? 2 : 1
-                            Text {
+                            LucideIcon {
                                 anchors.left: parent.left
                                 anchors.leftMargin: 13
                                 anchors.verticalCenter: parent.verticalCenter
-                                text: Icons.search
-                                font.family: Icons.fontFamily
-                                font.pixelSize: Theme.iconSizeSmall
+                                icon: Icons.search
+                                size: Theme.iconSizeSmall
                                 color: searchField.activeFocus ? Theme.accent : Theme.mutedText
                             }
                         }
@@ -467,10 +463,9 @@ Page {
                 ColumnLayout {
                     anchors.centerIn: parent
                     spacing: 12
-                    Text {
-                        text: page.locations.length === 0 ? Icons.location : Icons.search
-                        font.family: Icons.fontFamily
-                        font.pixelSize: 54
+                    LucideIcon {
+                        icon: page.locations.length === 0 ? Icons.location : Icons.search
+                        size: 54
                         color: Theme.mutedText
                         opacity: 0.55
                         Layout.alignment: Qt.AlignHCenter
@@ -554,11 +549,10 @@ Page {
                                     border.width: 3
                                     scale: markerMouse.pressed ? 0.92 : (markerMouse.containsMouse ? 1.08 : 1.0)
                                     Behavior on scale { NumberAnimation { duration: 110 } }
-                                    Text {
+                                    LucideIcon {
                                         anchors.centerIn: parent
-                                        text: Icons.location
-                                        font.family: Icons.fontFamily
-                                        font.pixelSize: 17
+                                        icon: Icons.location
+                                        size: 17
                                         color: Theme.accentText
                                     }
                                 }
@@ -654,11 +648,10 @@ Page {
                         id: mapCaptionRow
                         anchors.centerIn: parent
                         spacing: 8
-                        Text {
-                            text: Icons.location
-                            font.family: Icons.fontFamily
+                        LucideIcon {
+                            icon: Icons.location
                             color: Theme.accent
-                            font.pixelSize: Theme.iconSizeSmall
+                            size: Theme.iconSizeSmall
                         }
                         Text {
                             text: page.filteredLocations.length + " bridge location" + (page.filteredLocations.length === 1 ? "" : "s")
@@ -693,13 +686,10 @@ Page {
                                 color: parent.down ? Theme.controlPressed : (parent.hovered ? Theme.controlHover : Theme.card)
                                 border.color: Theme.border
                             }
-                            contentItem: Text {
-                                text: modelData.icon
-                                font.family: Icons.fontFamily
-                                font.pixelSize: Theme.iconSizeSmall
+                            contentItem: LucideIcon {
+                                icon: modelData.icon
+                                size: Theme.iconSizeSmall
                                 color: Theme.text
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
                             }
                             ToolTip.visible: hovered
                             ToolTip.text: modelData.tip

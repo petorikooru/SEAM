@@ -20,12 +20,10 @@ CheckBox {
         border.color: control.checked ? control.seriesColor : Theme.borderLight
         border.width: 1
 
-        Text {
+        LucideIcon {
             anchors.centerIn: parent
-            text: Icons.check
-            font.family: Icons.fontFamily
-            font.pixelSize: 10
-            font.bold: true
+            icon: Icons.check
+            size: 10
             color: control.checked ? Theme.accentText : "transparent"
         }
     }

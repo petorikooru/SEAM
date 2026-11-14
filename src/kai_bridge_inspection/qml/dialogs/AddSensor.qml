@@ -66,11 +66,10 @@ Popup {
                 Layout.preferredHeight: 44
                 radius: 12
                 color: Theme.accentSoft
-                Text {
+                LucideIcon {
                     anchors.centerIn: parent
-                    text: Icons.sensor
-                    font.family: Icons.fontFamily
-                    font.pixelSize: Theme.iconSizeLarge
+                    icon: Icons.sensor
+                    size: Theme.iconSizeLarge
                     color: Theme.accent
                 }
             }
@@ -116,11 +115,10 @@ Popup {
                 anchors.leftMargin: 14
                 anchors.rightMargin: 14
                 spacing: 10
-                Text {
-                    text: Icons.location
-                    font.family: Icons.fontFamily
+                LucideIcon {
+                    icon: Icons.location
                     color: Theme.accent
-                    font.pixelSize: 16
+                    size: 16
                 }
                 Text {
                     text: I18n.t("addSensor.gnssNote", "GNSS coordinates are discovered from live telemetry and can be corrected later in Sensor Settings.")
@@ -262,7 +260,7 @@ Popup {
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: 8
-                                Text { text: Icons.nodeRed; font.family: Icons.fontFamily; color: Theme.info; font.pixelSize: Theme.iconSizeSmall }
+                                LucideIcon { icon: Icons.nodeRed; color: Theme.info; size: Theme.iconSizeSmall }
                                 Text {
                                     text: I18n.t("addSensor.nodeRedHelp", "The device_id must match Node-RED JSON. The WebSocket path must match this sensor's WebSocket Listener/Out path. MQTT remains configured only in Node-RED.")
                                     color: Theme.subText

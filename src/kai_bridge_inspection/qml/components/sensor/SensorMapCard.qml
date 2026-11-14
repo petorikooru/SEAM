@@ -39,12 +39,11 @@ Rectangle {
             coordinate: QtPositioning.coordinate(card.latitude, card.longitude)
             anchorPoint.x: pin.width / 2
             anchorPoint.y: pin.height
-            sourceItem: Text {
+            sourceItem: LucideIcon {
                 id: pin
-                text: Icons.mapPin
-                font.family: Icons.fontFamily
+                icon: Icons.mapPin
                 color: Theme.danger
-                font.pixelSize: 26
+                size: 26
             }
         }
     }

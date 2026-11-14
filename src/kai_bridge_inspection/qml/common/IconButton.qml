@@ -23,13 +23,10 @@ Button {
         border.color: control.hovered || control.activeFocus ? Theme.borderLight : Theme.border
     }
 
-    contentItem: Text {
-        text: control.iconText
-        font.family: Icons.fontFamily
-        font.pixelSize: control.iconPixelSize
+    contentItem: LucideIcon {
+        icon: control.iconText
+        size: control.iconPixelSize
         color: control.enabled ? control.iconColor : Theme.disabledText
-        horizontalAlignment: Text.AlignHCenter
-        verticalAlignment: Text.AlignVCenter
     }
 
     ToolTip.visible: control.hovered && control.tip.length > 0

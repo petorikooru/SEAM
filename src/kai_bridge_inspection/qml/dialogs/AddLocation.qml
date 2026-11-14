@@ -92,11 +92,10 @@ Popup {
                 Layout.preferredHeight: 44
                 radius: 12
                 color: Theme.accentSoft
-                Text {
+                LucideIcon {
                     anchors.centerIn: parent
-                    text: Icons.location
-                    font.family: Icons.fontFamily
-                    font.pixelSize: 19
+                    icon: Icons.location
+                    size: 19
                     color: Theme.accent
                 }
             }
@@ -243,14 +242,13 @@ Popup {
                                         }
                                     }
 
-                                    Text {
+                                    LucideIcon {
                                         anchors.left: parent.left
                                         anchors.leftMargin: 13
                                         anchors.verticalCenter: parent.verticalCenter
-                                        text: Icons.search
-                                        font.family: Icons.fontFamily
+                                        icon: Icons.search
                                         color: searchField.activeFocus ? Theme.accent : Theme.mutedText
-                                        font.pixelSize: Theme.iconSizeSmall
+                                        size: Theme.iconSizeSmall
                                     }
                                 }
 
@@ -275,11 +273,10 @@ Popup {
                                             implicitHeight: 48
                                             contentItem: RowLayout {
                                                 spacing: 9
-                                                Text {
-                                                    text: Icons.mapPin
-                                                    font.family: Icons.fontFamily
+                                                LucideIcon {
+                                                    icon: Icons.mapPin
                                                     color: highlighted ? Theme.accentText : Theme.accent
-                                                    font.pixelSize: Theme.iconSizeSmall
+                                                    size: Theme.iconSizeSmall
                                                 }
                                                 Text {
                                                     text: locationData.address.text || (locationData.coordinate.latitude.toFixed(5) + ", " + locationData.coordinate.longitude.toFixed(5))
@@ -347,11 +344,10 @@ Popup {
                                         color: Theme.accent
                                         border.color: "white"
                                         border.width: 3
-                                        Text {
+                                        LucideIcon {
                                             anchors.centerIn: parent
-                                            text: Icons.location
-                                            font.family: Icons.fontFamily
-                                            font.pixelSize: Theme.iconSizeSmall
+                                            icon: Icons.location
+                                            size: Theme.iconSizeSmall
                                             color: Theme.accentText
                                         }
                                     }

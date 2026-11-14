@@ -44,11 +44,10 @@ Rectangle {
             radius: 10
             color: Qt.rgba(tile.accentColor.r, tile.accentColor.g, tile.accentColor.b, Theme.darkMode ? 0.16 : 0.11)
 
-            Text {
+            LucideIcon {
                 anchors.centerIn: parent
-                text: tile.iconText
-                font.family: Icons.fontFamily
-                font.pixelSize: 17
+                icon: tile.iconText
+                size: 17
                 color: tile.accentColor
             }
         }

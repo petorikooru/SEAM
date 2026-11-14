@@ -63,10 +63,9 @@ Rectangle {
 
         contentItem: RowLayout {
             spacing: 10
-            Text {
-                text: menuItem.iconText
-                font.family: Icons.fontFamily
-                font.pixelSize: Theme.iconSizeSmall
+            LucideIcon {
+                icon: menuItem.iconText
+                size: Theme.iconSizeSmall
                 color: menuItem.danger ? Theme.danger : (menuItem.highlighted ? Theme.accent : Theme.text)
             }
             Text {
@@ -166,14 +165,11 @@ Rectangle {
                 anchors.rightMargin: sidebarRoot.collapsed ? 0 : 10
                 spacing: 11
 
-                Text {
-                    text: control.iconText
-                    font.family: Icons.fontFamily
-                    font.pixelSize: Theme.iconSize
+                LucideIcon {
+                    icon: control.iconText
+                    size: Theme.iconSize
                     color: control.active ? Theme.accentText : (control.subtle ? Theme.subText : Theme.text)
                     Layout.preferredWidth: sidebarRoot.collapsed ? parent.width : 18
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
                 }
 
                 Text {
@@ -192,11 +188,10 @@ Rectangle {
                     Layout.preferredWidth: 26
                     Layout.fillHeight: true
 
-                    Text {
+                    LucideIcon {
                         anchors.centerIn: parent
-                        text: Icons.chevronRight
-                        font.family: Icons.fontFamily
-                        font.pixelSize: Theme.iconSizeSmall
+                        icon: Icons.chevronRight
+                        size: Theme.iconSizeSmall
                         color: control.active ? Theme.accentText : Theme.subText
                         rotation: control.expanded ? 90 : 0
                         Behavior on rotation { NumberAnimation { duration: 150 } }
@@ -253,13 +248,12 @@ Rectangle {
             border.color: field.activeFocus ? Theme.accent : Theme.border
             border.width: field.activeFocus ? 2 : 1
 
-            Text {
+            LucideIcon {
                 anchors.left: parent.left
                 anchors.leftMargin: 12
                 anchors.verticalCenter: parent.verticalCenter
-                text: Icons.search
-                font.family: Icons.fontFamily
-                font.pixelSize: Theme.iconSizeSmall
+                icon: Icons.search
+                size: Theme.iconSizeSmall
                 color: field.activeFocus ? Theme.accent : Theme.mutedText
             }
         }
@@ -518,12 +512,11 @@ Rectangle {
             onClicked: sidebarRoot.addLocationRequested()
 
             contentItem: Item {
-                Text {
+                LucideIcon {
                     visible: sidebarRoot.collapsed
                     anchors.centerIn: parent
-                    text: Icons.add
-                    font.family: Icons.fontFamily
-                    font.pixelSize: Theme.iconSizeLarge
+                    icon: Icons.add
+                    size: Theme.iconSizeLarge
                     color: Theme.accentText
                 }
 
@@ -534,10 +527,9 @@ Rectangle {
                     anchors.rightMargin: 14
                     spacing: 12
 
-                    Text {
-                        text: Icons.add
-                        font.family: Icons.fontFamily
-                        font.pixelSize: Theme.iconSize
+                    LucideIcon {
+                        icon: Icons.add
+                        size: Theme.iconSize
                         color: Theme.accentText
                     }
                     ColumnLayout {

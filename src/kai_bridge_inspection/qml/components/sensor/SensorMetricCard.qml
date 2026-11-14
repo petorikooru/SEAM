@@ -26,10 +26,9 @@ Rectangle {
         anchors.margins: 14
         spacing: 10
 
-        Text {
-            text: card.iconText
-            font.family: Icons.fontFamily
-            font.pixelSize: Theme.iconSize
+        LucideIcon {
+            icon: card.iconText
+            size: Theme.iconSize
             color: Theme.accent
         }
 
