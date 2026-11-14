@@ -2,7 +2,7 @@
 
 ## Boundary
 
-Node-RED owns MQTT and Sparkplug B. The desktop owns sensor catalogue data, per-sensor WebSocket clients, validation, persistence, historical queries, and presentation.
+Node-RED owns MQTT and Sparkplug B. The desktop owns sensor catalogue data, WebSocket clients, validation, persistence, historical queries, and presentation.
 
 ## Data flow
 
@@ -25,29 +25,20 @@ Route by device_id
    ├─ NEMOSENSE-02 → /kai/sensors/nemosense-02
    └─ another device → another unique path
    ▼
-Desktop per-sensor WebSocket clients
+Desktop WebSocket clients
    ├─ endpoint/device_id consistency check
    ├─ canonical JSON validation
    ├─ bounded SQLite writer
    └─ committed telemetry → charts, indicators, GNSS, history, export
 ```
 
-## Per-sensor binding model
+## Sensor profiles and stream bindings
 
-`settings.db` schema version 3 adds `sensors.websocket_endpoint`. A sensor record contains:
+Settings schema v4 stores the sensor profile and adds `sensor_metric_endpoints` for BeanDevice and Custom paths. NemoSense retains its existing `sensors.websocket_endpoint` for all its metrics. BeanDevice Periodic and Custom bind one canonical metric per path. BeanDevice Streaming stores its shared path on the sensor record and accepts the selected profile’s metrics on that path.
 
-- friendly application name
-- exact canonical `device_id`
-- unique WebSocket endpoint
-- location and GNSS metadata
+The desktop checks each batch against its endpoint's configured device and optional metric before queuing it. Chart and indicator routing still uses `metric_name`. A sensor can report partial connectivity if only some of its paths are connected.
 
-The desktop opens the unique set of sensor endpoints. For a configured endpoint, every incoming point must contain that endpoint's assigned `device_id`; otherwise the batch is rejected.
-
-Legacy `node_red_bindings` remains in the database only for migration compatibility and is not used by the v5.2 runtime.
-
-## Simplification
-
-One sensor now uses one WebSocket endpoint for all metrics. Widget routing is no longer represented in transport configuration. The existing chart and indicator layers select values by `metric_name`, reducing the flow from four widget channels to one channel per physical sensor.
+Existing sensor records, legacy bindings, and telemetry history are preserved when upgrading. Node-RED handles normalization for each hardware vendor and routes the resulting payloads to the configured paths.
 
 ## Failure behaviour
 

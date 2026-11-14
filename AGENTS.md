@@ -2,7 +2,7 @@
 
 ## Project at a glance
 
-SEAM (Structure Evaluation and Acquisition Monitoring) is a desktop bridge-inspection dashboard. The intended application stack is **Python 3.12+, PyQt6 with QML, and MySQL**. Node-RED owns MQTT connectivity and Sparkplug B decoding; the desktop receives validated `kai.telemetry.v1` JSON over a dedicated WebSocket endpoint for each sensor.
+SEAM (Structure Evaluation and Acquisition Monitoring) is a desktop bridge-inspection dashboard. The intended application stack is **Python 3.12+, PyQt6 with QML, and MySQL**. Node-RED owns MQTT connectivity and Sparkplug B decoding; the desktop receives validated `kai.telemetry.v1` JSON over dedicated WebSocket endpoints assigned by sensor profile.
 
 **Important current-state warning:** The repository currently documents and depends on **PySide6** and uses **SQLite**. PyQt6 and MySQL are the desired direction, not an already-completed migration. Do not silently treat the current README, tests, packaging, or existing databases as if they had already been migrated. When changing either stack component, update code, dependency metadata, tests, packaging, and documentation together; keep existing data safe.
 
@@ -16,8 +16,8 @@ SEAM (Structure Evaluation and Acquisition Monitoring) is a desktop bridge-inspe
 ## Non-negotiable architecture boundaries
 
 1. Keep MQTT connections, Sparkplug B protobuf decoding, aliases, and session state in Node-RED. Do not move them into the desktop runtime. Existing legacy MQTT modules are not permission to bypass this boundary.
-2. Keep one WebSocket endpoint per sensor, carrying all of that sensor's metrics. Route widgets by `metric_name`, not by creating a WebSocket per widget.
-3. Validate schema, payload types, timestamps, and the match between configured endpoint and `device_id` before persisting. Reject malformed or mismatched batches; do not partially save an invalid batch.
+2. Keep one WebSocket endpoint for all NemoSense metrics. BeanDevice Periodic and Custom use one endpoint per configured metric. BeanDevice Streaming uses one shared endpoint restricted to the selected profile’s metrics. Assign endpoints exclusively to one sensor and route widgets by `metric_name`.
+3. Validate schema, payload types, timestamps, and the match between configured endpoint, `device_id`, and the configured `metric_name` where applicable before persisting. Reject malformed or mismatched batches; do not partially save an invalid batch.
 4. Preserve the `kai.telemetry.v1` contract unless the coordinated Node-RED, desktop, docs, and tests changes explicitly introduce a versioned replacement.
 5. Keep the GUI responsive: WebSocket handling, database queries/writes, and exports must not block the QML/GUI thread. Bound queues and handle disconnected sensors independently.
 

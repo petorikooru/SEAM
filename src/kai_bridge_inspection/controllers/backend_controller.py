@@ -11,6 +11,7 @@ import logging
 import re
 import time
 from collections import defaultdict, deque
+from dataclasses import replace
 from itertools import pairwise
 from pathlib import Path
 from statistics import median
@@ -22,7 +23,11 @@ from PySide6.QtGui import QDesktopServices
 
 from kai_bridge_inspection.application.paths import ApplicationPaths
 from kai_bridge_inspection.domain.models import HistoricalQuery, LocationRecord, SensorRecord
-from kai_bridge_inspection.settings.repository import SettingsRepository
+from kai_bridge_inspection.settings.repository import (
+    SENSOR_PROFILES,
+    SettingsRepository,
+    sensor_acquisition_mode,
+)
 from kai_bridge_inspection.telemetry.query_service import TelemetryQueryService
 from kai_bridge_inspection.telemetry.sqlite_repository import SQLiteTelemetryRepository
 
@@ -393,14 +398,42 @@ class BackendController(QObject):
         websocket_endpoint: str,
         location_name: str,
     ) -> bool:
-        """Register a sensor with a dedicated Node-RED WebSocket stream."""
+        return self.saveProfileSensor(name, description, device_id, location_name, "nemosense", [
+            {"metric": "", "path": websocket_endpoint},
+        ])
+
+    @Slot(result="QVariantMap")
+    def sensorProfiles(self) -> dict[str, object]:
+        return {profile: list(metrics) for profile, (_, metrics) in SENSOR_PROFILES.items()}
+
+    @staticmethod
+    def _bean_acquisition(profile: str, acquisition: str) -> str:
+        if not profile.startswith("beandevice_"):
+            return ""
+        if acquisition not in {"periodic", "streaming"}:
+            raise ValueError("Choose Periodic or Streaming for BeanDevice")
+        return acquisition
+
+    @staticmethod
+    def _sensor_routes(streams: list[dict[str, str]]) -> dict[str, str]:
+        routes: dict[str, str] = {}
+        for stream in streams:
+            metric = stream["metric"].strip()
+            if metric in routes:
+                raise ValueError(f"Duplicate metric name: {metric!r}")
+            routes[metric] = stream["path"]
+        return routes
+
+    @Slot(str, str, str, str, str, "QVariantList", result=bool)
+    @Slot(str, str, str, str, str, "QVariantList", str, result=bool)
+    def saveProfileSensor(
+        self, name: str, description: str, device_id: str, location_name: str,
+        profile: str, streams: list[dict[str, str]], acquisition: str = "periodic",
+    ) -> bool:
         try:
-            if self.settings.get_sensor(name) is not None:
-                return False
-            normalized_device = re.sub(r"[^A-Za-z0-9_.:-]", "-", device_id.strip())[:128]
-            if not normalized_device:
-                return False
-            endpoint = self.settings.normalize_websocket_endpoint(websocket_endpoint)
+            normalized_device = self.settings.validate_node_red_device_id(device_id)
+            label = SENSOR_PROFILES[profile][0]
+            routes = self._sensor_routes(streams)
             record = SensorRecord(
                 name=name.strip(),
                 description=description.strip(),
@@ -412,14 +445,13 @@ class BackendController(QObject):
                 mqtt_username="",
                 password_env="",
                 device_id=normalized_device,
-                device_type="Dewesoft Nemosense",
-                sample_rate=250,
-                trigger_mode="Continuous",
+                device_type=label,
+                sample_rate=250 if profile == "nemosense" else 0,
+                trigger_mode="Continuous" if profile == "nemosense" else self._bean_acquisition(profile, acquisition),
                 latitude=_DEFAULT_LAT,
                 longitude=_DEFAULT_LON,
-                websocket_endpoint=endpoint,
             )
-            success = self.settings.save_sensor(record)
+            success = self.settings.save_sensor(record, profile=profile, routes=routes, create_only=True)
             self._refresh_sensor_mapping()
             self.sensorAdded.emit()
             self.daemon_controller.reloadSettings()
@@ -543,10 +575,42 @@ class BackendController(QObject):
         lat: float,
         lon: float,
     ) -> bool:
-        """Update the Node-RED identity, dedicated WebSocket path, and coordinates."""
+        sensor = self.settings.get_sensor(name)
+        if sensor is None:
+            return False
+        routes = {"": websocket_endpoint} if sensor.profile == "nemosense" else self.settings.get_sensor_streams(sensor)
+        return self.updateProfileSensor(name, device_id, sensor.profile, [
+            {"metric": metric, "path": path} for metric, path in routes.items()
+        ], lat, lon)
+
+    @Slot(str, str, str, "QVariantList", float, float, result=bool)
+    @Slot(str, str, str, "QVariantList", float, float, str, result=bool)
+    def updateProfileSensor(
+        self, name: str, device_id: str, profile: str,
+        streams: list[dict[str, str]], lat: float, lon: float, acquisition: str | None = None,
+    ) -> bool:
         try:
-            self.settings.set_sensor_node_red_mapping(name, device_id, websocket_endpoint)
-            self.settings.set_sensor_gnss(name, lat, lon)
+            sensor = self.settings.get_sensor(name)
+            if sensor is None:
+                return False
+            device_id = self.settings.validate_node_red_device_id(device_id)
+            label = SENSOR_PROFILES[profile][0]
+            if acquisition is None:
+                acquisition = sensor_acquisition_mode(sensor.profile, sensor.trigger_mode) or "periodic"
+            trigger_mode = self._bean_acquisition(profile, acquisition)
+            if profile == "nemosense":
+                trigger_mode = sensor.trigger_mode if sensor.profile == profile else "Continuous"
+            success = self.settings.save_sensor(
+                replace(sensor, device_id=device_id, device_type=label, mqtt_topic=f"nodered/{device_id}",
+                        latitude=lat, longitude=lon,
+                        sample_rate=sensor.sample_rate if profile == sensor.profile else (250 if profile == "nemosense" else 0),
+                        trigger_mode=trigger_mode),
+                old_name=name, profile=profile, routes=self._sensor_routes(streams),
+            )
+            if not success:
+                return False
+            if sensor.device_id != device_id:
+                self._latest_values.pop(name, None)
             self._refresh_sensor_mapping()
             self.sensorAdded.emit()
             self.daemon_controller.reloadSettings()
@@ -588,9 +652,9 @@ class BackendController(QObject):
             "gnss_lon": sensor.longitude,
         }
         latest = self.telemetry_repository.latest_values(sensor.device_id, 500)
-        for point in latest:
-            data[point.metric_name] = point.value
-        data.update(self._latest_values.get(name, {}))
+        values = {point.metric_name: point.value for point in latest}
+        values.update(self._latest_values.get(name, {}))
+        data.update({metric: value for metric, value in values.items() if metric not in data})
         if "ACC/TEMPERATURE" in data:
             data["temp"] = data["ACC/TEMPERATURE"]
         if "BATTERY" in data:
@@ -600,10 +664,26 @@ class BackendController(QObject):
         if "ACC/ROLL" in data:
             data["roll"] = data["ACC/ROLL"]
         data["active_metrics"] = list(self.telemetry_repository.list_metrics(sensor.device_id))
-        endpoint_connected = self.daemon_controller.isEndpointConnected(sensor.websocket_endpoint)
+        routes = self.settings.get_sensor_streams(sensor)
+        streams = [
+            {
+                "metric": metric,
+                "path": path,
+                "connected": self.daemon_controller.isEndpointConnected(path),
+                "value": values.get(metric),
+            }
+            for metric, path in routes.items()
+        ]
+        acquisition = sensor_acquisition_mode(sensor.profile, sensor.trigger_mode)
+        data["acquisition"] = acquisition
+        data["profile_metrics"] = list(SENSOR_PROFILES[sensor.profile][1]) if acquisition == "streaming" else list(routes)
+        data["profile"] = sensor.profile
+        data["streams"] = streams
+        connected_count = sum(1 for stream in streams if stream["connected"])
+        endpoint_connected = bool(streams) and connected_count == len(streams)
         stream_health = {
             "connected": endpoint_connected,
-            "status": "RUNNING" if endpoint_connected else self.daemon_controller.state,
+            "status": "RUNNING" if endpoint_connected else ("PARTIAL" if connected_count else "OFFLINE"),
             "endpoint": sensor.websocket_endpoint,
             "last_error": self.daemon_controller.lastError,
         }

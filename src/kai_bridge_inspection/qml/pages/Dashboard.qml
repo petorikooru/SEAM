@@ -325,28 +325,24 @@ Page {
                 MetricTile {
                     label: "Structure locations"
                     value: String(page.locations.length)
-                    caption: "Configured inspection sites"
                     iconText: Icons.location
                     accentColor: Theme.accent
                 }
                 MetricTile {
                     label: "Registered sensors"
                     value: String(page.totalSensors)
-                    caption: "Across all bridge locations"
                     iconText: Icons.sensor
                     accentColor: Theme.info
                 }
                 MetricTile {
                     label: "Node-RED bridge"
                     value: page.daemonApi ? page.daemonApi.state : "Unavailable"
-                    caption: page.daemonApi && page.daemonApi.collectionEnabled ? "Widget streams enabled" : "Widget streams paused"
                     iconText: Icons.sync
                     accentColor: page.daemonApi && page.daemonApi.running ? Theme.success : Theme.warning
                 }
                 MetricTile {
                     label: "Node-RED streams"
                     value: page.daemonApi && page.daemonApi.mqttConnected ? "Online" : "Offline"
-                    caption: page.daemonApi && page.daemonApi.mqttConnected ? "Receiving normalized telemetry" : "Check Node-RED endpoints"
                     iconText: Icons.signal
                     accentColor: page.daemonApi && page.daemonApi.mqttConnected ? Theme.success : Theme.danger
                 }
@@ -379,7 +375,7 @@ Page {
                             anchors.margins: 4
                             spacing: 4
 
-                            Button {
+                            WinButton {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 padding: 0
@@ -388,18 +384,12 @@ Page {
                                     radius: 7
                                     color: !page.mapView ? Theme.accent : "transparent"
                                 }
-                                contentItem: Text {
-                                    text: Icons.dashboard + "  Grid"
-                                    color: !page.mapView ? Theme.accentText : Theme.subText
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 12
-                                    font.bold: !page.mapView
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                }
+                                iconName: Icons.dashboard
+                                text: "Grid"
+                                isAccent: !page.mapView
                             }
 
-                            Button {
+                            WinButton {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 padding: 0
@@ -408,15 +398,9 @@ Page {
                                     radius: 7
                                     color: page.mapView ? Theme.accent : "transparent"
                                 }
-                                contentItem: Text {
-                                    text: Icons.mapPin + "  Map"
-                                    color: page.mapView ? Theme.accentText : Theme.subText
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 12
-                                    font.bold: page.mapView
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                }
+                                iconName: Icons.mapPin
+                                text: "Map"
+                                isAccent: page.mapView
                             }
                         }
                     }

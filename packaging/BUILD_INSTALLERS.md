@@ -29,6 +29,6 @@ Outputs in `release/` are a portable `.tar.gz`, a `.deb` when `dpkg-deb` is avai
 
 ## Deployment boundary
 
-The installer does not install Node-RED, the MQTT broker, or the custom Sparkplug node. Deploy those operational components using `nodered/README.md`, then configure the desktop host, port, and one dedicated WebSocket path per sensor.
+The installer does not install Node-RED, the MQTT broker, or the custom Sparkplug node. Deploy those operational components using `nodered/README.md`, then configure the desktop host, port, and the WebSocket paths for each sensor profile.
 
 Application databases and logs remain in the platform-specific user-data directory and are preserved during normal upgrades.

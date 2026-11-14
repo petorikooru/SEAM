@@ -69,9 +69,6 @@
     "languageHelp": "Pilih bahasa antarmuka. Teks terjemahan disimpan dalam berkas JSON yang mudah diedit.",
     "english": "English",
     "indonesian": "Bahasa Indonesia",
-    "iconFont": "Font ikon",
-    "iconFontDetected": "Nerd Font terdeteksi: {font}",
-    "iconFontFallback": "Nerd Font tidak terdeteksi. Menggunakan simbol bawaan sistem.",
     "database": "Konfigurasi Basis Data",
     "databaseHelp": "Kelola lokasi penyimpanan data telemetri dan konfigurasi lokal.",
     "openFolder": "Buka Folder",
@@ -128,13 +125,13 @@
     "connection": "Pemetaan identitas Node-RED",
     "requiredFields": "Kolom wajib",
     "create": "Tambah sensor",
-    "saveError": "Sensor tidak dapat disimpan. Pastikan namanya unik dan lokasi yang dipilih masih tersedia.",
+    "saveError": "Periksa nama sensor, ID perangkat, dan jalur metrik.",
     "sensorName": "Nama sensor",
     "location": "Lokasi",
     "description": "Deskripsi",
     "deviceId": "device_id Node-RED",
     "deviceIdPlaceholder": "contoh: NEMOSENSE-01",
-    "nodeRedHelp": "device_id harus sama dengan JSON Node-RED. Path WebSocket harus sama dengan path WebSocket Listener/Out khusus sensor ini. MQTT tetap dikonfigurasi hanya di Node-RED.",
+    "nodeRedHelp": "Cocokkan ID perangkat dan jalur dengan Node-RED. NemoSense dan BeanDevice Streaming memakai satu jalur. BeanDevice Periodik dan Kustom memakai satu jalur per metrik.",
     "websocketEndpoint": "Path WebSocket khusus"
   },
   "addLocation": {
@@ -178,7 +175,7 @@
     "indicatorsNode": "Jalur WebSocket Out indikator",
     "locationNode": "Jalur WebSocket Out lokasi",
     "mqttOwnership": "Kepemilikan MQTT",
-    "mqttOwnershipHelp": "Broker MQTT, kredensial, subscription, decoding Sparkplug B, alias, status birth/death, dan routing dikonfigurasi hanya di Node-RED. Gunakan halaman workspace Node-RED untuk mengatur host, lalu konfigurasikan satu path WebSocket khusus untuk setiap sensor.",
+    "mqttOwnershipHelp": "MQTT, dekode Sparkplug B, dan perutean aliran berjalan di Node-RED.",
     "bridgeTitle": "Jembatan Stream Node-RED",
     "bridgeSubtitle": "Koneksi WebSocket langsung dari node keluaran Node-RED ke widget aplikasi",
     "connectStreams": "Hubungkan stream",
@@ -186,7 +183,7 @@
     "reconnectStreams": "Hubungkan ulang",
     "disconnectStreams": "Putuskan",
     "sensorEndpoints": "Routing WebSocket per sensor",
-    "sensorEndpointHelp": "Konfigurasikan satu path WebSocket Listener/Out untuk setiap sensor di Node-RED, lalu masukkan path yang sama pada Tambah Sensor atau Pengaturan Sensor. Satu endpoint membawa semua metrik sensor tersebut."
+    "sensorEndpointHelp": "Cocokkan ID perangkat dan jalur dengan Node-RED. NemoSense dan BeanDevice Streaming memakai satu jalur. BeanDevice Periodik dan Kustom memakai satu jalur per metrik."
   },
   "location": {
     "overview": "Ikhtisar lokasi",
@@ -229,13 +226,13 @@
     "ntpStatus": "Status NTP",
     "nodeRedStream": "Stream Node-RED",
     "noDeviceId": "Tidak ada device_id",
-    "connectionHelpNodeRed": "Samakan device_id dengan JSON kanonik dan path WebSocket dengan listener Node-RED khusus sensor ini. MQTT, kredensial, subscription, dan pemrosesan Sparkplug tetap berada di Node-RED.",
+    "connectionHelpNodeRed": "Cocokkan ID perangkat dan jalur dengan Node-RED. NemoSense dan BeanDevice Streaming memakai satu jalur. BeanDevice Periodik dan Kustom memakai satu jalur per metrik.",
     "nodeRedDeviceId": "device_id Node-RED",
     "bridgeState": "Status jembatan Node-RED",
     "endpointConnected": "Stream terhubung",
     "normalizedDevice": "device_id ternormalisasi",
     "pipelineError": "Kesalahan pipeline terakhir",
-    "footerNodeRed": "Setiap sensor menggunakan satu path WebSocket khusus yang membawa seluruh metrik ternormalisasi.",
+    "footerNodeRed": "Cocokkan ID perangkat dan jalur dengan Node-RED. NemoSense dan BeanDevice Streaming memakai satu jalur. BeanDevice Periodik dan Kustom memakai satu jalur per metrik.",
     "websocketEndpoint": "Path WebSocket"
   },
   "map": {
@@ -249,5 +246,25 @@
     "day": "24 Jam Terakhir",
     "week": "7 Hari Terakhir",
     "all": "Semua Data"
+  },
+  "sensorStreams": {
+    "family": "Jenis sensor",
+    "custom": "Kustom",
+    "mode": "Kanal BeanDevice",
+    "accelerometer": "Akselerometer",
+    "inclinometer": "Inklinometer",
+    "combo": "Kombinasi",
+    "paths": "Jalur WebSocket Node-RED",
+    "metric": "Nama metrik",
+    "addMetric": "Tambah metrik",
+    "connected": "Terhubung",
+    "offline": "Terputus",
+    "acquisition": "Mode akuisisi",
+    "periodic": "Periodik (Siklus Rendah)",
+    "streaming": "Streaming",
+    "shared": "Aliran kanal gabungan"
+  },
+  "sensorPicker": {
+    "title": "Pilih sensor"
   }
 }

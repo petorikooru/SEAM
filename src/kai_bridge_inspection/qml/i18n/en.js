@@ -71,9 +71,6 @@ var strings = {
     "languageHelp": "Choose the interface language. Translation text is stored in editable JSON files.",
     "english": "English",
     "indonesian": "Bahasa Indonesia",
-    "iconFont": "Icon font",
-    "iconFontDetected": "Nerd Font detected: {font}",
-    "iconFontFallback": "Nerd Font not detected. Using system-safe fallback symbols.",
     "database": "Database Configuration",
     "databaseHelp": "Manage where local telemetry and configuration data is stored.",
     "openFolder": "Open Folder",
@@ -130,13 +127,13 @@ var strings = {
     "connection": "Node-RED identity mapping",
     "requiredFields": "Required fields",
     "create": "Add sensor",
-    "saveError": "The sensor could not be saved. Confirm that the name is unique and the selected location still exists.",
+    "saveError": "Check the sensor name, device ID, and metric paths.",
     "sensorName": "Sensor name",
     "location": "Location",
     "description": "Description",
     "deviceId": "Node-RED device_id",
     "deviceIdPlaceholder": "e.g. NEMOSENSE-01",
-    "nodeRedHelp": "The device_id must match Node-RED JSON. The WebSocket path must match this sensor's WebSocket Listener/Out path. MQTT remains configured only in Node-RED.",
+    "nodeRedHelp": "Match the device ID and paths to Node-RED. NemoSense and BeanDevice Streaming use one path. BeanDevice Periodic and Custom use a path per metric.",
     "websocketEndpoint": "Dedicated WebSocket path"
   },
   "addLocation": {
@@ -180,7 +177,7 @@ var strings = {
     "indicatorsNode": "Indicators WebSocket Out path",
     "locationNode": "Location WebSocket Out path",
     "mqttOwnership": "MQTT ownership",
-    "mqttOwnershipHelp": "MQTT brokers, credentials, subscriptions, Sparkplug B decoding, aliases, birth/death state, and routing are configured exclusively in Node-RED. Use the Node-RED workspace page to set the host, then configure one dedicated WebSocket path for each sensor.",
+    "mqttOwnershipHelp": "MQTT, Sparkplug B decoding, and stream routing run in Node-RED.",
     "bridgeTitle": "Node-RED Stream Bridge",
     "bridgeSubtitle": "Direct WebSocket connection from named Node-RED output nodes to application widgets",
     "connectStreams": "Connect streams",
@@ -188,7 +185,7 @@ var strings = {
     "reconnectStreams": "Reconnect",
     "disconnectStreams": "Disconnect",
     "sensorEndpoints": "Per-sensor WebSocket routing",
-    "sensorEndpointHelp": "Configure one WebSocket Listener/Out path for each sensor in Node-RED, then enter the same path in Add Sensor or Sensor Settings. One endpoint carries all metrics for that sensor."
+    "sensorEndpointHelp": "Match the device ID and paths to Node-RED. NemoSense and BeanDevice Streaming use one path. BeanDevice Periodic and Custom use a path per metric."
   },
   "location": {
     "overview": "Location overview",
@@ -231,13 +228,13 @@ var strings = {
     "ntpStatus": "NTP status",
     "nodeRedStream": "Node-RED stream",
     "noDeviceId": "No device_id",
-    "connectionHelpNodeRed": "Match device_id to the canonical JSON and the WebSocket path to this sensor's dedicated Node-RED listener. MQTT, credentials, subscriptions, and Sparkplug processing remain in Node-RED.",
+    "connectionHelpNodeRed": "Match the device ID and paths to Node-RED. NemoSense and BeanDevice Streaming use one path. BeanDevice Periodic and Custom use a path per metric.",
     "nodeRedDeviceId": "Node-RED device_id",
     "bridgeState": "Node-RED bridge state",
     "endpointConnected": "Stream connected",
     "normalizedDevice": "Normalized device_id",
     "pipelineError": "Last pipeline error",
-    "footerNodeRed": "Each sensor uses one dedicated WebSocket path carrying all of its normalized metrics.",
+    "footerNodeRed": "Match the device ID and paths to Node-RED. NemoSense and BeanDevice Streaming use one path. BeanDevice Periodic and Custom use a path per metric.",
     "websocketEndpoint": "WebSocket path"
   },
   "map": {
@@ -251,5 +248,25 @@ var strings = {
     "day": "Last 24 Hours",
     "week": "Last 7 Days",
     "all": "All Data"
+  },
+  "sensorStreams": {
+    "family": "Sensor type",
+    "custom": "Custom",
+    "mode": "BeanDevice channels",
+    "accelerometer": "Accelerometer",
+    "inclinometer": "Inclinometer",
+    "combo": "Combo",
+    "paths": "Node-RED WebSocket paths",
+    "metric": "Metric name",
+    "addMetric": "Add metric",
+    "connected": "Connected",
+    "offline": "Offline",
+    "acquisition": "Acquisition mode",
+    "periodic": "Periodic (Low Duty Cycle)",
+    "streaming": "Streaming",
+    "shared": "Shared channel stream"
+  },
+  "sensorPicker": {
+    "title": "Choose a sensor"
   }
 };

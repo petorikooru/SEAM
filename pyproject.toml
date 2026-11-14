@@ -43,9 +43,7 @@ kai_bridge_inspection = [
     "qml/qmldir",
     "qml/assets/*.svg", "qml/assets/icons/lucide/*.svg", "qml/assets/icons/lucide/LICENSE",
     "qml/assets/*.ico",
-    "qml/assets/fonts/*.md",
-    "qml/assets/fonts/*.ttf",
-    "qml/assets/fonts/*.otf",
+    "qml/assets/sensors/*.jpg",
     "qml/i18n/*.js",
     "qml/i18n/*.json",
 ]

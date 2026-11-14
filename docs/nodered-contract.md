@@ -2,7 +2,7 @@
 
 ## Transport
 
-Each sensor has one unique WebSocket listener path:
+Each configured stream has a unique WebSocket listener path:
 
 ```text
 ws://<node-red-host>:<port>/<sensor-endpoint>
@@ -21,9 +21,11 @@ The desktop stores the endpoint without leading or trailing slashes. `https` or 
 For each sensor, these values must match across Node-RED and the desktop:
 
 - the exact case-sensitive `device_id`
-- the dedicated WebSocket path
+- the configured WebSocket path
+- for BeanDevice Periodic and Custom, the exact case-sensitive `metric_name` assigned to the path
+- for BeanDevice Streaming, the selected profile’s allowed metric set
 
-One endpoint must not be assigned to more than one sensor. The desktop rejects a batch when the endpoint is assigned to `NEMOSENSE-01` but the envelope contains another `device_id`.
+A NemoSense endpoint can carry all metrics for its device. Each BeanDevice Periodic or Custom endpoint carries only its assigned metric. A BeanDevice Streaming endpoint may carry a mixed batch of acceleration and inclination metrics for its device. Paths are exclusive across all profiles. A wrong device or metric causes the entire batch to be rejected. The desktop rejects a batch when the endpoint is assigned to `NEMOSENSE-01` but the envelope contains another `device_id`.
 
 ## Schema
 

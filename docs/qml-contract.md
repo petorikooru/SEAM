@@ -25,9 +25,10 @@ Node-RED service configuration:
 
 Sensor catalogue:
 
-- `saveNewNodeRedSensor(name, description, device_id, websocket_endpoint, location_name)`
-- `updateNodeRedSensorSettings(name, device_id, websocket_endpoint, latitude, longitude)`
-- `getSensorData(name)` includes `websocket_endpoint` and per-endpoint stream health
+- `sensorProfiles()` returns the supported profiles and their required metric names.
+- `saveProfileSensor(name, description, device_id, location_name, profile, streams, acquisition)`
+- `updateProfileSensor(name, device_id, profile, streams, latitude, longitude, acquisition)`
+- `getSensorData(name)` includes `profile` and `streams`. Each stream has `metric`, `path`, and `connected`. Shared streams use an empty `metric`. The snapshot provides `acquisition` and `profile_metrics` for the BeanDevice controls and charts.
 - standard location, metadata, GNSS, deletion, chart, history, and export methods remain available
 
 Legacy global widget-binding methods remain callable for database compatibility but are no longer presented in the current Node-RED page.

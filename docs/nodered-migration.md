@@ -32,3 +32,10 @@ Legacy broker tables and four global widget bindings are preserved for compatibi
 - Stopping the desktop does not interrupt Node-RED MQTT processing.
 - One sensor endpoint may reconnect without stopping other sensor streams.
 - Location and sensor pages retain the same chart interaction model.
+
+## Profile-based routing
+
+Settings schema v4 retains existing NemoSense endpoints and adds per-metric
+routes for BeanDevice Periodic and Custom profiles. BeanDevice Streaming uses a shared route. Existing BeanDevice split routes load as Periodic. No change to existing NemoSense
+Node-RED routes is required. See the [Node-RED setup](../nodered/README.md#configure-beandevice-and-custom-streams)
+for routing new devices.

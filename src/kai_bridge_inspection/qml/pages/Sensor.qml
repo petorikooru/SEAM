@@ -15,6 +15,10 @@ Item {
     property string sensorName: I18n.t("sensor.unknown", "Unknown Sensor")
     property var sensorData: ({})
     property bool isEditing: false
+    readonly property bool splitStreams: !!sensorData.profile && sensorData.profile !== "nemosense"
+    readonly property var streamMetrics: sensorData.profile_metrics || []
+    readonly property bool hasAcceleration: !splitStreams || ["ACC/X", "ACC/Y", "ACC/Z"].some(metric => streamMetrics.includes(metric))
+    readonly property bool hasInclination: !splitStreams || ["ACC/ROLL", "ACC/PITCH"].some(metric => streamMetrics.includes(metric))
 
     property real mapLat: -6.917464
     property real mapLon: 107.619123
@@ -390,13 +394,16 @@ Item {
                 objectName: "motionChartsGrid"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                Layout.minimumHeight: columns === 2 ? 520 : 1056
+                visible: page.hasAcceleration || page.hasInclination
+                Layout.minimumHeight: columns === 2 || !page.hasAcceleration || !page.hasInclination ? 520 : 1056
                 columns: width >= 980 ? 2 : 1
                 columnSpacing: 16
                 rowSpacing: 16
 
                 MotionChartPanel {
                     id: accelPanel
+                    visible: page.hasAcceleration
+                    Layout.columnSpan: page.hasInclination ? 1 : motionChartsGrid.columns
                     objectName: "accelPanel"
                     titleText: I18n.t("sensor.accelerometer", "Accelerometer")
                     subtitleText: I18n.t("sensor.accelerometerHelp", "Three-axis acceleration")
@@ -433,6 +440,8 @@ Item {
 
                 MotionChartPanel {
                     id: inclinoPanel
+                    visible: page.hasInclination
+                    Layout.columnSpan: page.hasAcceleration ? 1 : motionChartsGrid.columns
                     objectName: "inclinoPanel"
                     titleText: I18n.t("sensor.inclinometer", "Inclinometer")
                     subtitleText: I18n.t("sensor.inclinometerHelp", "Pitch and roll angles")

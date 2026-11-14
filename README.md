@@ -1,6 +1,6 @@
 # SEAM
 
-SEAM (Structure Evaluation and Acquisition Monitoring) is a PySide6/QML desktop dashboard whose telemetry boundary is Node-RED. Node-RED owns MQTT connectivity and Sparkplug B processing. The desktop receives validated `kai.telemetry.v1` JSON over dedicated per-sensor WebSocket endpoints.
+SEAM (Structure Evaluation and Acquisition Monitoring) is a PySide6/QML desktop dashboard whose telemetry boundary is Node-RED. Node-RED owns MQTT connectivity and Sparkplug B processing. The desktop receives validated `kai.telemetry.v1` JSON over WebSocket endpoints configured by sensor profile.
 
 ## Runtime architecture
 
@@ -15,10 +15,10 @@ Node-RED
                                          └─ /kai/sensors/<another-sensor>
         ▼
 Desktop application
-  one WebSocket per sensor → JSON validation → SQLite → widgets/charts
+  profile-based WebSockets → JSON validation → SQLite → widgets/charts
 ```
 
-One sensor endpoint carries all metrics for that sensor. The application selects accelerometer, inclinometer, indicator, and GNSS metrics by `metric_name`; Node-RED does not need separate WebSockets for each widget.
+NemoSense uses one WebSocket for all metrics. BeanDevice Streaming uses one shared path for the selected channels. BeanDevice Periodic and Custom use separate paths for individual metrics. The application routes telemetry by `metric_name`.
 
 The desktop does not create an MQTT client, subscribe to MQTT topics, decode protobuf, or manage Sparkplug aliases/session state.
 
@@ -65,16 +65,22 @@ Install the decoder in the Node-RED user directory, restart Node-RED, import the
 
 ## Sensor configuration
 
-For every physical sensor, configure the same pair in Node-RED and the desktop:
+Open **Add Sensor**, select a sensor card, and fill in the form. For BeanDevice, select both the channel group and acquisition mode. **Sensor Settings** can edit existing mappings.
 
-| Field | Example |
+| Profile | WebSocket paths |
 |---|---|
-| Canonical `device_id` | `NEMOSENSE-01` |
-| Dedicated WebSocket path | `kai/sensors/nemosense-01` |
+| NemoSense | One path for all metrics, for example `kai/sensors/nemosense-01` |
+| BeanDevice Accelerometer (Periodic) | One each for `ACC/X`, `ACC/Y`, and `ACC/Z` |
+| BeanDevice Inclinometer (Periodic) | One each for `ACC/ROLL` and `ACC/PITCH` |
+| BeanDevice Combo (Periodic) | Five paths covering both sets of metrics |
+| BeanDevice Streaming (all channel selections) | One shared path, suggested as `<MAC-ID>/STREAMING` |
+| Custom | One path for each metric name you add |
 
-Node-RED uses `/kai/sensors/nemosense-01`; the desktop accepts either with or without the leading slash and stores it without the slash.
+Use the same case-sensitive `device_id` in the desktop and in Node-RED. Each path must be unique. The desktop trims leading and trailing slashes when storing paths and rejects an entire batch if the device or assigned metric does not match.
 
-WebSocket paths must be unique per sensor. If data for another `device_id` arrives on a configured endpoint, the desktop rejects that message.
+On startup, settings database schema v4 adds profiles and metric-specific routes. Existing sensors keep their IDs and paths under the NemoSense profile. The telemetry database uses the existing schema. Back up the database files before upgrading if you need to roll back to a build that only supports settings schema v3.
+
+See [Node-RED setup](nodered/README.md#configure-beandevice-and-custom-streams) for normalization and routing.
 
 ## MQTT connection error
 

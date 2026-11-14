@@ -8,7 +8,7 @@ Item {
     property string icon: ""            // Lucide name, normally taken from Icons.*
     property color color: Theme.text
     property real size: Theme.iconSize
-    property real strokeWidth: 2        // Lucide default; lower (1.5) reads lighter at 12-14 px
+    property real strokeWidth: 2.5        // Lucide default; lower (1.5) reads lighter at 12-14 px
 
     implicitWidth: size
     implicitHeight: size

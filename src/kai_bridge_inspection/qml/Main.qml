@@ -52,8 +52,8 @@ ApplicationWindow {
     }
 
     function openAddSensor(locationKey) {
-        sensorDialog.targetLocation = locationKey || ""
-        sensorDialog.open()
+        sensorPicker.targetLocation = locationKey || ""
+        sensorPicker.open()
     }
 
     function toggleMaximized() {
@@ -261,5 +261,15 @@ ApplicationWindow {
     MouseArea { anchors.left: parent.left; anchors.top: parent.top; width: 12; height: 12; z: 1001; cursorShape: Qt.SizeFDiagCursor; acceptedButtons: Qt.LeftButton; onPressed: root.startSystemResize(Qt.TopLeftCorner) }
 
     AddLocation { id: locationDialog; appBackend: root.appBackend }
+    SensorPicker {
+        id: sensorPicker
+        onSensorSelected: function(profile) {
+            close()
+            sensorDialog.targetLocation = targetLocation
+            sensorDialog.selectedProfile = profile
+            sensorDialog.resetForm()
+            sensorDialog.open()
+        }
+    }
     AddSensor { id: sensorDialog; appBackend: root.appBackend }
 }

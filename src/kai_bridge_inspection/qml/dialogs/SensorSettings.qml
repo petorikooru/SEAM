@@ -28,6 +28,15 @@ Popup {
 
     signal settingsApplied()
 
+    Connections {
+        target: typeof backend !== "undefined" ? backend : null
+        enabled: dialog.opened
+        function onNotificationRaised(title, message) {
+            if (title === "Sensor settings error")
+                saveError.text = message
+        }
+    }
+
     function pick(keys, fallback) {
         for (let i = 0; i < keys.length; ++i) {
             const value = sensorSnapshot[keys[i]]
@@ -72,9 +81,10 @@ Popup {
     }
 
     function loadSettings() {
+        saveError.text = ""
         sensorSnapshot = typeof backend !== "undefined" ? (backend.getSensorData(sensorName) || ({})) : ({})
         deviceIdField.text = sensorSnapshot.device_id || ""
-        websocketEndpointField.text = sensorSnapshot.websocket_endpoint || ""
+        streamForm.load(sensorSnapshot.profile || "nemosense", sensorSnapshot.streams || [], sensorSnapshot.acquisition || "")
         mapLat = Number(sensorSnapshot.gnss_lat || sensorSnapshot.GNSS_LAT || 0)
         mapLon = Number(sensorSnapshot.gnss_lon || sensorSnapshot.GNSS_LON || 0)
         if (mapLat === 0 && mapLon === 0) {
@@ -252,8 +262,12 @@ Popup {
 
                                 FieldLabel { labelText: I18n.t("sensorSettings.nodeRedDeviceId", "Node-RED device_id") }
                                 WinTextField { id: deviceIdField; Layout.fillWidth: true; placeholderText: "NEMOSENSE-01" }
-                                FieldLabel { labelText: I18n.t("sensorSettings.websocketEndpoint", "Dedicated WebSocket path") }
-                                WinTextField { id: websocketEndpointField; Layout.fillWidth: true; placeholderText: "kai/sensors/nemosense-01" }
+                                SensorStreams {
+                                    id: streamForm
+                                    Layout.fillWidth: true
+                                    profiles: typeof backend !== "undefined" && backend ? backend.sensorProfiles() : ({})
+                                    deviceId: deviceIdField.text
+                                }
                             }
                         }
 
@@ -448,13 +462,32 @@ Popup {
                                 DataRow { labelText: I18n.t("sensorSettings.bridgeState", "Node-RED bridge state"); valueText: dialog.streamStatus() }
                                 DataRow { labelText: I18n.t("sensorSettings.endpointConnected", "Stream connected"); valueText: dialog.streamHealth().connected ? I18n.t("common.yes", "Yes") : I18n.t("common.no", "No") }
                                 DataRow { labelText: I18n.t("sensorSettings.normalizedDevice", "Normalized device_id"); valueText: pick(["device_id"], "--") }
-                                DataRow { labelText: I18n.t("sensorSettings.websocketEndpoint", "WebSocket path"); valueText: pick(["websocket_endpoint"], "--") }
+                                Repeater {
+                                    model: dialog.sensorSnapshot.streams || []
+                                    DataRow {
+                                        required property var modelData
+                                        labelText: modelData.metric || I18n.t("sensorSettings.websocketEndpoint", "WebSocket path")
+                                        valueText: modelData.path + " · " + (modelData.connected
+                                            ? I18n.t("sensorStreams.connected", "Connected")
+                                            : I18n.t("sensorStreams.offline", "Offline"))
+                                            + (modelData.value === null || modelData.value === undefined
+                                                ? "" : " · " + String(modelData.value))
+                                    }
+                                }
                                 DataRow { labelText: I18n.t("sensorSettings.pipelineError", "Last pipeline error"); valueText: dialog.streamHealth().last_error || I18n.t("common.none", "None") }
                             }
                         }
                     }
                 }
             }
+        }
+
+        Text {
+            id: saveError
+            Layout.fillWidth: true
+            visible: text.length > 0
+            color: Theme.danger
+            wrapMode: Text.WordWrap
         }
 
         Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.divider }
@@ -473,13 +506,14 @@ Popup {
 
             WinButton { text: I18n.t("common.cancel", "Cancel"); Layout.preferredWidth: 94; onClicked: dialog.close() }
             WinButton {
-                text: Icons.save + "  " + I18n.t("sensorSettings.apply", "Apply settings")
+                iconName: Icons.save; text: I18n.t("sensorSettings.apply", "Apply settings")
                 isAccent: true
                 Layout.preferredWidth: 142
-                enabled: deviceIdField.text.trim().length > 0 && websocketEndpointField.text.trim().length > 0
+                enabled: deviceIdField.text.trim().length > 0
                 onClicked: {
+                    saveError.text = ""
                     const success = typeof backend !== "undefined"
-                        ? backend.updateNodeRedSensorSettings(sensorName, deviceIdField.text.trim(), websocketEndpointField.text.trim(), dialog.mapLat, dialog.mapLon)
+                        ? backend.updateProfileSensor(sensorName, deviceIdField.text.trim(), streamForm.profile, streamForm.values(), dialog.mapLat, dialog.mapLon, streamForm.acquisition)
                         : false
                     if (success) {
                         dialog.settingsApplied()

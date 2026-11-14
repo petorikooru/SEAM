@@ -249,13 +249,13 @@ Page {
 
                 ActionButton {
                     visible: !page.isEditing
-                    text: Icons.add + " Add sensor"
+                    iconName: Icons.add; text: "Add sensor"
                     isAccent: true
                     onClicked: page.addSensor()
                 }
                 ActionButton {
                     visible: !page.isEditing
-                    text: Icons.edit + " Edit"
+                    iconName: Icons.edit; text: "Edit"
                     onClicked: page.isEditing = true
                 }
                 ActionButton {
@@ -270,7 +270,7 @@ Page {
                 }
                 ActionButton {
                     visible: page.isEditing
-                    text: Icons.save + " Save"
+                    iconName: Icons.save; text: "Save"
                     isAccent: true
                     enabled: editNameField.text.trim().length > 0
                     onClicked: page.saveLocation()
@@ -412,7 +412,7 @@ Page {
                                 }
 
                                 WinButton {
-                                    text: Icons.search + " Find"
+                                    iconName: Icons.search; text: "Find"
                                     Layout.preferredWidth: 82
                                     onClicked: {
                                         if (mapSearchField.text.trim().length > 0) {
@@ -541,7 +541,7 @@ Page {
                             Text { text: I18n.t("location.sensors", "Sensors at this location"); color: Theme.text; font.pixelSize: 19; font.bold: true }
                             Text { text: I18n.t("location.sensorsHelp", "Select a sensor to review its current state and live motion channels."); color: Theme.subText; font.pixelSize: 11 }
                         }
-                        ActionButton { text: Icons.add + " Add sensor"; isAccent: true; onClicked: page.addSensor() }
+                        ActionButton { iconName: Icons.add; text: "Add sensor"; isAccent: true; onClicked: page.addSensor() }
                     }
 
                     GridLayout {
@@ -732,7 +732,7 @@ Page {
                                 spacing: 10
                                 LucideIcon { icon: Icons.sensor; color: Theme.mutedText; opacity: 0.45; size: 46; Layout.alignment: Qt.AlignHCenter }
                                 Text { text: page.sensorList.length === 0 ? "No sensors are installed at this location." : "Select a sensor to view telemetry."; color: Theme.subText; font.pixelSize: 13; Layout.alignment: Qt.AlignHCenter }
-                                ActionButton { visible: page.sensorList.length === 0; text: Icons.add + " Add first sensor"; isAccent: true; Layout.alignment: Qt.AlignHCenter; onClicked: page.addSensor() }
+                                ActionButton { visible: page.sensorList.length === 0; iconName: Icons.add; text: "Add first sensor"; isAccent: true; Layout.alignment: Qt.AlignHCenter; onClicked: page.addSensor() }
                             }
                         }
                     }

@@ -117,21 +117,6 @@ Item {
                                 }
                             }
 
-                            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.divider }
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 10
-                                LucideIcon { icon: Icons.info; size: Theme.iconSize; color: Theme.info }
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: Theme.nerdFontAvailable
-                                          ? I18n.format("settings.iconFontDetected", {"font": Theme.iconFontFamily}, "Nerd Font detected: " + Theme.iconFontFamily)
-                                          : I18n.t("settings.iconFontFallback", "Nerd Font not detected. Using system-safe fallback symbols.")
-                                    color: Theme.subText
-                                    font.pixelSize: 12
-                                    wrapMode: Text.WordWrap
-                                }
-                            }
                         }
                     }
 
@@ -245,7 +230,7 @@ Item {
 
                                 WinButton {
                                     Layout.alignment: Qt.AlignBottom
-                                    text: Icons.download + "  " + I18n.t("settings.exportToCsv", "Export to CSV")
+                                    iconName: Icons.download; text: I18n.t("settings.exportToCsv", "Export to CSV")
                                     isAccent: true
                                     Layout.preferredHeight: 38
                                     Layout.preferredWidth: 160
@@ -301,7 +286,7 @@ Item {
                             spacing: 10
                             Text { text: I18n.t("nodeRed.mqttOwnership", "MQTT ownership"); font.pixelSize: 18; font.bold: true; color: Theme.text }
                             Text {
-                                text: I18n.t("nodeRed.mqttOwnershipHelp", "MQTT brokers, credentials, subscriptions, Sparkplug B decoding, aliases, birth/death state, and routing are configured exclusively in Node-RED. Use the Node-RED workspace page to set the host, then configure one dedicated WebSocket path for each sensor.")
+                                text: I18n.t("nodeRed.mqttOwnershipHelp", "MQTT, Sparkplug B decoding, and stream routing run in Node-RED.")
                                 font.pixelSize: 13
                                 color: Theme.subText
                                 wrapMode: Text.WordWrap

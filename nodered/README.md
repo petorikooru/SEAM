@@ -50,7 +50,7 @@ To add another sensor:
 6. Deploy.
 7. Add the sensor in the desktop with the same `device_id` and WebSocket path.
 
-Each endpoint carries the complete canonical envelope for one sensor. Do not split accelerometer, inclinometer, location, and indicator metrics into separate endpoints.
+A NemoSense endpoint carries the complete canonical envelope for that device.
 
 ## 4. Verify each endpoint
 
@@ -80,3 +80,59 @@ Messages whose `device_id` has no switch rule are sent to **Unmatched device_id*
 - Use TLS for MQTT where supported.
 - Use `wss` behind an authenticated reverse proxy for non-local WebSocket access.
 - Restrict Node-RED editor and WebSocket access to trusted networks.
+
+## Configure BeanDevice and Custom streams
+
+The supplied Sparkplug flow covers the NemoSense pipeline. For BeanDevice and
+Custom devices, use an input and decoder in Node-RED that match the firmware or
+gateway configuration. Inspect an actual device payload to identify the vendor's
+channels, time base, and units before mapping them.
+
+1. Normalize each measurement to a `kai.telemetry.v1` point. Preserve the sample
+   timestamp as a decimal string in UTC nanoseconds. Match the configured desktop
+   `device_id` exactly.
+2. For BeanDevice, normalize acceleration in g to `ACC/X`, `ACC/Y`, and `ACC/Z`.
+   Normalize tilt in degrees to `ACC/ROLL` and `ACC/PITCH` using the sensor's
+   mounting orientation to determine the corresponding channel and sign.
+3. Match the sensor's acquisition mode when routing the normalized points.
+   - **Periodic (LDCDA)** uses a separate topic per channel. The BeanAir
+     manual shows `<MAC-ID>/SENSOR/0`, and the protocol specifies the X-INC
+     channel IDs 0 = Z, 1 = X, 2 = Y, 3 = INC_X, and 4 = INC_Y. SEAM
+     suggests corresponding WebSocket paths with the same suffixes and
+     maps channels 3 and 4 to roll and pitch respectively. Adjust the
+     mapping for the actual mounting orientation and signs.
+   - **Streaming** uses one dynamic MQTT topic, typically
+     `<MAC-ID>/STREAMING`. The streaming frame packs samples for the
+     enabled channels. Decode and normalize them in Node-RED, then send
+     all selected channels through a single WebSocket Listener/Out at
+     `/<MAC-ID>/STREAMING` or the matching override entered in SEAM.
+     A Combo batch may contain acceleration and tilt points together.
+   - **Custom** routes one configured metric per WebSocket path.
+4. Keep the exact device ID and metric spelling when publishing. The device's
+   MQTT topic is configurable in BeanScape. SEAM's suggested paths are editable.
+   The desktop acquisition selector configures routing and validation. Set the
+   actual device acquisition mode separately in BeanScape.
+
+Example normalized Combo streaming message for `/F4B85E00A14B0000/STREAMING`:
+
+```json
+{
+  "schema": "kai.telemetry.v1",
+  "device_id": "F4B85E00A14B0000",
+  "points": [
+    {"metric_name": "ACC/X", "value": 0.018, "unit": "g", "timestamp_ns": "1785146400123000000"},
+    {"metric_name": "ACC/PITCH", "value": -0.24, "unit": "deg", "timestamp_ns": "1785146400123000000"}
+  ]
+}
+```
+
+BeanAir's dynamic topic can also carry event-triggered and shock frames.
+Filter for the intended acquisition frame in the Node-RED decoder.
+The desktop expects canonical JSON from Node-RED. The bundled Sparkplug
+flow and decoder do not decode BeanAir's binary MQTT frames.
+
+- [BeanDevice Wilow User Manual, sections 9.7–9.8](https://www.wireless-iot.beanair.com/files/UM-RF-07-ENG-Wilow-Wifi-Sensor.pdf)
+- [BeanAir MQTT Communication Protocol, sections 7–8](https://www.wireless-iot.beanair.com/files/TN-RF-004-MQTT-Comnmunication-Protocol.pdf)
+
+Picker photographs are from the [Dewesoft NemoSense product page](https://dewesoft.com/products/nemosense)
+and [BeanAir WiLow X-INC datasheet](https://www.wireless-iot-sensors.beanair.com/files/Datasheet-wifi-accelerometer-and-inclinometer-sensors-beandevice-Wilow-X-Inc.pdf).

@@ -106,7 +106,7 @@ Rectangle {
                 WinButton {
                     objectName: "sensorEditButton"
                     visible: !card.editing
-                    text: Icons.edit + "  " + I18n.t("common.edit", "Edit")
+                    iconName: Icons.edit; text: I18n.t("common.edit", "Edit")
                     implicitHeight: 36
                     onClicked: card.editRequested()
                 }
@@ -114,7 +114,7 @@ Rectangle {
                 WinButton {
                     objectName: "sensorSettingsButton"
                     visible: !card.editing
-                    text: Icons.settings + "  " + I18n.t("sensorSettings.title", "Sensor settings")
+                    iconName: Icons.settings; text: I18n.t("sensorSettings.title", "Sensor settings")
                     implicitHeight: 36
                     onClicked: card.settingsRequested()
                 }
@@ -122,7 +122,7 @@ Rectangle {
                 WinButton {
                     objectName: "sensorHistoryButton"
                     visible: !card.editing
-                    text: Icons.chart + "  " + I18n.t("common.history", "History")
+                    iconName: Icons.chart; text: I18n.t("common.history", "History")
                     implicitHeight: 36
                     onClicked: card.historyRequested()
                 }
@@ -130,7 +130,7 @@ Rectangle {
                 WinButton {
                     objectName: "sensorExportButton"
                     visible: !card.editing
-                    text: Icons.download + "  " + I18n.t("common.exportCsv", "Export CSV")
+                    iconName: Icons.download; text: I18n.t("common.exportCsv", "Export CSV")
                     isAccent: true
                     implicitHeight: 36
                     onClicked: card.exportRequested()
@@ -139,7 +139,7 @@ Rectangle {
                 WinButton {
                     objectName: "sensorDeleteButton"
                     visible: card.editing
-                    text: Icons.trash + "  " + I18n.t("common.delete", "Delete")
+                    iconName: Icons.trash; text: I18n.t("common.delete", "Delete")
                     isDanger: true
                     implicitHeight: 36
                     onClicked: card.deleteRequested()
@@ -148,7 +148,7 @@ Rectangle {
                 WinButton {
                     objectName: "sensorCancelButton"
                     visible: card.editing
-                    text: Icons.cancel + "  " + I18n.t("common.cancel", "Cancel")
+                    iconName: Icons.cancel; text: I18n.t("common.cancel", "Cancel")
                     implicitHeight: 36
                     onClicked: card.cancelRequested()
                 }
@@ -156,7 +156,7 @@ Rectangle {
                 WinButton {
                     objectName: "sensorSaveButton"
                     visible: card.editing
-                    text: Icons.save + "  " + I18n.t("common.save", "Save")
+                    iconName: Icons.save; text: I18n.t("common.save", "Save")
                     isAccent: true
                     implicitHeight: 36
                     enabled: editNameField.text.trim().length > 0

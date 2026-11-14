@@ -19,7 +19,28 @@ Popup {
     property string dialogTitle: "Historical Graph"
     property bool metricSelectionEnabled: true
 
+    property int presetMetricCount: 0
+
+    Component.onCompleted: presetMetricCount = metricModel.count
+
+    function loadSensorMetrics(name) {
+        if (metricModel.count > presetMetricCount)
+            metricModel.remove(presetMetricCount, metricModel.count - presetMetricCount)
+        if (typeof backend === "undefined")
+            return false
+        const sensor = backend.getSensorData(name)
+        if (!sensor.profile || sensor.profile === "nemosense")
+            return false
+        const metrics = new Set(sensor.profile_metrics || [])
+        for (const metric of sensor.active_metrics || [])
+            metrics.add(metric)
+        for (const metric of metrics)
+            metricModel.append({label: metricLabel(metric), metrics: metric, yTitle: metricLabel(metric)})
+        return metrics.size > 0
+    }
+
     function openBattery(name) {
+        loadSensorMetrics(name)
         sensorName = name
         dialogTitle = "Battery / Power Telemetry"
         // Keep the selector enabled. NemoSense battery data can arrive as
@@ -37,7 +58,7 @@ Popup {
         sensorName = name
         dialogTitle = "Historical Telemetry"
         metricSelectionEnabled = true
-        metricCombo.currentIndex = 3
+        metricCombo.currentIndex = loadSensorMetrics(name) ? presetMetricCount : 3
         rangeCombo.currentIndex = 1
         open()
         refreshTimer.restart()
@@ -203,61 +224,7 @@ Popup {
         ListElement { label: "All Data"; days: 0 }
     }
 
-    component DialogComboBox: ComboBox {
-        id: cbControl
-        font.pixelSize: 14
 
-        textRole: "label"
-
-        delegate: ItemDelegate {
-            width: cbControl.width
-            contentItem: Text {
-                text: label
-                color: cbControl.highlightedIndex === index ? Theme.accentText : Theme.text
-                font.pixelSize: 14
-                verticalAlignment: Text.AlignVCenter
-            }
-            background: Rectangle {
-                color: cbControl.highlightedIndex === index ? Theme.accent : (hovered ? Theme.controlHover : "transparent")
-                radius: 4
-            }
-        }
-
-        contentItem: Text {
-            text: cbControl.displayText
-            color: cbControl.enabled ? Theme.text : Theme.disabledText
-            font.pixelSize: 14
-            verticalAlignment: Text.AlignVCenter
-            leftPadding: 12
-            elide: Text.ElideRight
-        }
-
-        background: Rectangle {
-            color: cbControl.enabled ? Theme.controlBg : Theme.controlDisabled
-            radius: 6
-            border.color: cbControl.activeFocus ? Theme.accent : Theme.border
-            border.width: cbControl.activeFocus ? 2 : 1
-        }
-
-        popup: Popup {
-            y: cbControl.height + 4
-            width: cbControl.width
-            padding: 4
-
-            contentItem: ListView {
-                clip: true
-                implicitHeight: contentHeight
-                model: cbControl.popup.visible ? cbControl.delegateModel : null
-                currentIndex: cbControl.highlightedIndex
-            }
-
-            background: Rectangle {
-                color: Theme.card
-                border.color: Theme.border
-                radius: 6
-            }
-        }
-    }
 
     background: Rectangle {
         color: Theme.dialog
@@ -297,7 +264,8 @@ Popup {
                 }
             }
 
-            DialogComboBox {
+            WinComboBox {
+                textRole: "label"
                 id: metricCombo
                 model: metricModel
                 enabled: dialog.metricSelectionEnabled
@@ -305,7 +273,8 @@ Popup {
                 onActivated: refreshTimer.restart()
             }
 
-            DialogComboBox {
+            WinComboBox {
+                textRole: "label"
                 id: rangeCombo
                 model: rangeModel
                 Layout.preferredWidth: 160
@@ -313,7 +282,7 @@ Popup {
             }
 
             WinButton {
-                text: Icons.refresh + " Refresh"
+                iconName: Icons.refresh; text: "Refresh"
                 Layout.preferredHeight: 36
                 onClicked: refreshTimer.restart()
             }
@@ -401,7 +370,7 @@ Popup {
             }
 
             WinButton {
-                text: Icons.cancel + " Close"
+                iconName: Icons.cancel; text: "Close"
                 Layout.preferredHeight: 36
                 onClicked: dialog.close()
             }

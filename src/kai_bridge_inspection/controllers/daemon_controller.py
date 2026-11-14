@@ -54,7 +54,8 @@ class DaemonController(QObject):
         self._last_error = ""
         self._sockets: dict[str, QWebSocket] = {}
         self._connected_endpoints: set[str] = set()
-        self._endpoint_devices: dict[str, str] = {}
+        self._server_config: tuple[str, str] | None = None
+        self._endpoint_streams: dict[str, tuple[str, frozenset[str]]] = {}
         self._repository = SQLiteTelemetryRepository(telemetry_database)
         self._writer = TelemetryBatchWriter(
             self._repository,
@@ -128,7 +129,7 @@ class DaemonController(QObject):
         self._state = "CONNECTING"
         self._last_error = ""
         self.stateChanged.emit()
-        self._ensure_connections(force_rebuild=True)
+        self._ensure_connections()
 
     @Slot()
     def pauseCollection(self) -> None:
@@ -143,7 +144,7 @@ class DaemonController(QObject):
     @Slot()
     def reloadSettings(self) -> None:
         if self._collection_enabled:
-            self._ensure_connections(force_rebuild=True)
+            self._ensure_connections()
         else:
             self.refreshStatus()
 
@@ -159,23 +160,31 @@ class DaemonController(QObject):
         self._repository.close()
 
     @Slot()
-    def _ensure_connections(self, force_rebuild: bool = False) -> None:
+    def _ensure_connections(self) -> None:
         if not self._collection_enabled:
             return
-        sensor_bindings = self._settings.list_node_red_sensor_endpoints()
-        self._endpoint_devices = {
-            endpoint.strip().strip("/"): device_id.strip()
-            for endpoint, device_id in sensor_bindings.items()
-            if endpoint.strip() and device_id.strip()
-        }
-        endpoints = sorted(self._endpoint_devices)
-        if not endpoints:
-            self._fail("No per-sensor Node-RED WebSocket endpoints are configured")
-            return
-        if force_rebuild or set(self._sockets) != set(endpoints):
+        server_config = (
+            self._settings.get_setting("nr_address", "127.0.0.1"),
+            self._settings.get_setting("nr_port", "1880"),
+        )
+        if server_config != self._server_config:
             self._close_sockets()
-            for endpoint in endpoints:
+            self._server_config = server_config
+        streams = {
+            path: binding for path, binding in self._settings.list_node_red_sensor_streams().items()
+            if binding[0]
+        }
+        for endpoint in self._sockets.keys() - streams.keys():
+            self._remove_socket(endpoint)
+        for endpoint, binding in streams.items():
+            if self._endpoint_streams.get(endpoint) != binding and endpoint in self._sockets:
+                self._remove_socket(endpoint)
+            if endpoint not in self._sockets:
                 self._sockets[endpoint] = self._create_socket(endpoint)
+        self._endpoint_streams = streams
+        if not streams:
+            self._fail("No Node-RED WebSocket paths are configured")
+            return
         for endpoint, socket in tuple(self._sockets.items()):
             if socket.state() != QAbstractSocket.SocketState.UnconnectedState:
                 continue
@@ -185,13 +194,14 @@ class DaemonController(QObject):
                 self._fail(f"Invalid Node-RED endpoint configuration: {exc}")
                 return
             socket.open(endpoint_url)
-        if not self._connected_endpoints:
-            self._state = "CONNECTING"
+        state = "RUNNING" if self._connected_endpoints else "CONNECTING"
+        if self._state != state:
+            self._state = state
             self.stateChanged.emit()
-            self.refreshStatus()
+        self.refreshStatus()
 
     def _create_socket(self, endpoint: str) -> QWebSocket:
-        socket = QWebSocket("", QWebSocketProtocol.VersionLatest, self)
+        socket = QWebSocket("", QWebSocketProtocol.Version.VersionLatest, self)
         socket.connected.connect(partial(self._on_connected, endpoint))
         socket.disconnected.connect(partial(self._on_disconnected, endpoint))
         socket.textMessageReceived.connect(partial(self._on_text_message, endpoint))
@@ -238,6 +248,9 @@ class DaemonController(QObject):
         self._ingest_message(endpoint, bytes(message))
 
     def _ingest_message(self, endpoint: str, message: str | bytes) -> None:
+        binding = self._endpoint_streams.get(endpoint)
+        if not self._collection_enabled or binding is None:
+            return
         try:
             points = parse_node_red_payload(message, endpoint)
         except NodeRedPayloadError as exc:
@@ -245,21 +258,17 @@ class DaemonController(QObject):
             self.errorOccurred.emit(self._last_error)
             self.stateChanged.emit()
             return
-        expected_device = self._endpoint_devices.get(endpoint)
-        if expected_device:
-            unexpected = sorted({point.device_id for point in points if point.device_id != expected_device})
-            if unexpected:
-                self._last_error = (
-                    f"{endpoint}: expected device_id {expected_device!r}, "
-                    f"received {', '.join(unexpected)}"
-                )
-                self.errorOccurred.emit(self._last_error)
-                self.stateChanged.emit()
+        expected_device, allowed_metrics = binding
+        if any(point.device_id != expected_device for point in points):
+            self._last_error = f"{endpoint}: expected device_id {expected_device!r}"
+        elif allowed_metrics and any(point.metric_name not in allowed_metrics for point in points):
+            self._last_error = f"{endpoint}: expected metric_name in {sorted(allowed_metrics)!r}"
+        else:
+            if self._writer.submit(points):
                 return
-        if not self._writer.submit(points):
             self._last_error = "Telemetry writer queue is full; newest Node-RED batch was dropped"
-            self.errorOccurred.emit(self._last_error)
-            self.stateChanged.emit()
+        self.errorOccurred.emit(self._last_error)
+        self.stateChanged.emit()
 
     def _on_batch_written(self, points: Sequence[TelemetryPoint]) -> None:
         self._batchCommitted.emit(tuple(points[-1_000:]))
@@ -281,18 +290,23 @@ class DaemonController(QObject):
         socket = self._sockets.get(endpoint)
         detail = socket.errorString() if socket is not None else "WebSocket error"
         self._last_error = f"{endpoint}: {detail}"
-        self._state = "RECONNECTING" if self._collection_enabled else self._state
+        if self._collection_enabled and not self._connected_endpoints:
+            self._state = "RECONNECTING"
         self.errorOccurred.emit(self._last_error)
         self.stateChanged.emit()
         self.refreshStatus()
 
+    def _remove_socket(self, endpoint: str) -> None:
+        socket = self._sockets.pop(endpoint)
+        socket.blockSignals(True)
+        socket.abort()
+        socket.deleteLater()
+        self._connected_endpoints.discard(endpoint)
+        self._mqtt_connected = bool(self._connected_endpoints)
+
     def _close_sockets(self) -> None:
-        for socket in tuple(self._sockets.values()):
-            socket.abort()
-            socket.deleteLater()
-        self._sockets.clear()
-        self._connected_endpoints.clear()
-        self._mqtt_connected = False
+        for endpoint in tuple(self._sockets):
+            self._remove_socket(endpoint)
 
     def _fail(self, message: str) -> None:
         self._last_error = message

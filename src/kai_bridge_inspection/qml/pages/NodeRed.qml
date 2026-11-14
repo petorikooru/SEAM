@@ -126,12 +126,12 @@ Page {
                 }
 
                 ToolbarButton {
-                    text: Icons.refresh + "  " + I18n.t("nodeRed.reload", "Reload")
+                    iconName: Icons.refresh; text: I18n.t("nodeRed.reload", "Reload")
                     enabled: webView.url.toString() !== ""
                     onClicked: webView.reload()
                 }
                 ToolbarButton {
-                    text: Icons.settings + "  " + I18n.t("nodeRed.connection", "Connection")
+                    iconName: Icons.settings; text: I18n.t("nodeRed.connection", "Connection")
                     isAccent: configPanel.visible
                     onClicked: configPanel.visible = !configPanel.visible
                 }
@@ -182,7 +182,7 @@ Page {
                     Layout.alignment: Qt.AlignHCenter
                 }
                 WinButton {
-                    text: Icons.plug + "  " + I18n.t("nodeRed.configure", "Configure connection")
+                    iconName: Icons.plug; text: I18n.t("nodeRed.configure", "Configure connection")
                     isAccent: true
                     Layout.alignment: Qt.AlignHCenter
                     onClicked: configPanel.visible = true
@@ -277,7 +277,7 @@ Page {
                             id: sensorRoutingHelp
                             anchors.fill: parent
                             anchors.margins: 12
-                            text: I18n.t("nodeRed.sensorEndpointHelp", "Configure one WebSocket Listener/Out path for each sensor in Node-RED, then enter the same path in Add Sensor or Sensor Settings. One endpoint carries all metrics for that sensor.")
+                            text: I18n.t("nodeRed.sensorEndpointHelp", "NemoSense uses one path. BeanDevice and Custom use a path per metric. Match every path to Node-RED.")
                             color: Theme.subText
                             font.pixelSize: 12
                             wrapMode: Text.WordWrap
@@ -321,7 +321,7 @@ Page {
                     Item { Layout.fillHeight: true }
 
                     WinButton {
-                        text: Icons.plug + "  " + I18n.t("nodeRed.connectButton", "Connect to Node-RED")
+                        iconName: Icons.plug; text: I18n.t("nodeRed.connectButton", "Connect to Node-RED")
                         isAccent: true
                         Layout.fillWidth: true
                         enabled: addressInput.text.trim().length > 0 && portInput.acceptableInput

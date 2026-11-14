@@ -50,8 +50,8 @@ def test_node_red_settings_replace_desktop_broker_controls() -> None:
     sensor_settings = (qml_root / "dialogs" / "SensorSettings.qml").read_text(encoding="utf-8")
 
     assert "MQTT ownership" in settings
-    assert "saveNewNodeRedSensor" in add_sensor
-    assert "updateNodeRedSensorSettings" in sensor_settings
+    assert "saveProfileSensor" in add_sensor
+    assert "updateProfileSensor" in sensor_settings
     assert "BrokerComboBox" not in sensor_settings
     assert "updateSensorSettings" not in sensor_settings
 

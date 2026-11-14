@@ -168,3 +168,4 @@ class SensorRecord:
     latitude: float
     longitude: float
     websocket_endpoint: str = ""
+    profile: str = "nemosense"

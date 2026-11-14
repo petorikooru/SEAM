@@ -301,7 +301,7 @@ Popup {
                             }
 
                             WinButton {
-                                text: Icons.search + "  " + I18n.t("common.find", "Find")
+                                iconName: Icons.search; text: I18n.t("common.find", "Find")
                                 Layout.preferredWidth: 84
                                 onClicked: {
                                     if (searchField.text.trim().length > 0) {
@@ -457,7 +457,7 @@ Popup {
             Text { text: "* " + I18n.t("common.required", "Required field"); color: Theme.mutedText; font.pixelSize: 11; Layout.fillWidth: true }
             WinButton { text: I18n.t("common.cancel", "Cancel"); Layout.preferredWidth: 96; onClicked: dialog.close() }
             WinButton {
-                text: Icons.save + "  " + I18n.t("addLocation.create", "Add location")
+                iconName: Icons.save; text: I18n.t("addLocation.create", "Add location")
                 isAccent: true
                 Layout.preferredWidth: 142
                 enabled: nameField.text.trim().length > 0

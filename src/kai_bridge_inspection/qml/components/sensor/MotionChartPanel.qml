@@ -129,9 +129,8 @@ Rectangle {
             WinButton {
                 width: 118
                 height: 34
-                text: panel.frozen
-                    ? Icons.play + "  " + I18n.t("common.resume", "Resume")
-                    : Icons.pause + "  " + I18n.t("common.freeze", "Freeze")
+                iconName: panel.frozen ? Icons.play : Icons.pause
+                text: panel.frozen ? I18n.t("common.resume", "Resume") : I18n.t("common.freeze", "Freeze")
                 isDanger: panel.frozen
                 onClicked: panel.freezeToggled()
             }
@@ -139,9 +138,8 @@ Rectangle {
             WinButton {
                 width: 104
                 height: 34
-                text: panel.panMode
-                    ? Icons.hand + "  " + I18n.t("common.pan", "Pan")
-                    : Icons.pinPoint + "  " + I18n.t("common.select", "Select")
+                iconName: panel.panMode ? Icons.hand : Icons.pinPoint
+                text: panel.panMode ? I18n.t("common.pan", "Pan") : I18n.t("common.select", "Select")
                 isAccent: !panel.panMode
                 enabled: panel.frozen
                 onClicked: panel.panModeToggled()
@@ -150,7 +148,7 @@ Rectangle {
             WinButton {
                 width: 104
                 height: 34
-                text: Icons.refresh + "  " + I18n.t("common.reset", "Reset")
+                iconName: Icons.refresh; text: I18n.t("common.reset", "Reset")
                 enabled: panel.frozen
                 onClicked: panel.resetRequested()
             }

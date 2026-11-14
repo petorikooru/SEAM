@@ -10,6 +10,7 @@ import re
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 
 from kai_bridge_inspection.domain.errors import ConfigurationError
@@ -20,10 +21,27 @@ from kai_bridge_inspection.domain.models import (
     SensorRecord,
 )
 
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9 ._():-]{1,128}$")
 _TELEMETRY_ID_RE = re.compile(r"^[A-Za-z0-9_.:/-]{1,192}$")
 _WEBSOCKET_ENDPOINT_RE = re.compile(r"^[A-Za-z0-9_.:/-]{1,255}$")
+
+
+SENSOR_PROFILES = {
+    "nemosense": ("Dewesoft Nemosense", ("",)),
+    "beandevice_accelerometer": ("BeanDevice Accelerometer", ("ACC/X", "ACC/Y", "ACC/Z")),
+    "beandevice_inclinometer": ("BeanDevice Inclinometer", ("ACC/ROLL", "ACC/PITCH")),
+    "beandevice_combo": (
+        "BeanDevice Combo", ("ACC/X", "ACC/Y", "ACC/Z", "ACC/ROLL", "ACC/PITCH")
+    ),
+    "custom": ("Custom", ()),
+}
+
+
+def sensor_acquisition_mode(profile: str, trigger_mode: str) -> str:
+    if not profile.startswith("beandevice_"):
+        return ""
+    return "streaming" if trigger_mode == "streaming" else "periodic"
 
 
 class SettingsRepository:
@@ -164,6 +182,20 @@ class SettingsRepository:
                     """
                 )
                 connection.execute("PRAGMA user_version = 3")
+                connection.commit()
+
+            if version < 4:
+                connection.execute("BEGIN IMMEDIATE")
+                connection.execute("ALTER TABLE sensors ADD COLUMN profile TEXT NOT NULL DEFAULT 'nemosense'")
+                connection.execute(
+                    """CREATE TABLE sensor_metric_endpoints (
+                        sensor_name TEXT NOT NULL REFERENCES sensors(name) ON UPDATE CASCADE ON DELETE CASCADE,
+                        metric_name TEXT NOT NULL,
+                        endpoint TEXT NOT NULL UNIQUE,
+                        PRIMARY KEY (sensor_name, metric_name)
+                    )"""
+                )
+                connection.execute("PRAGMA user_version = 4")
 
     def get_setting(self, key: str, default: str = "") -> str:
         with self._connection() as connection:
@@ -371,26 +403,45 @@ class SettingsRepository:
             row = connection.execute("SELECT * FROM sensors WHERE name = ?", (name,)).fetchone()
         return self._sensor_from_row(row) if row is not None else None
 
-    def save_sensor(self, record: SensorRecord, old_name: str | None = None) -> bool:
+    def save_sensor(
+        self, record: SensorRecord, old_name: str | None = None, *,
+        profile: str | None = None, routes: dict[str, str] | None = None, create_only: bool = False,
+    ) -> bool:
         self._validate_identifier(record.name, "sensor name")
         if record.device_id and not _TELEMETRY_ID_RE.fullmatch(record.device_id.strip()):
             raise ConfigurationError(
                 "Node-RED device_id must use 1-192 letters, digits, dot, underscore, colon, slash, or dash"
             )
-        endpoint = self.normalize_websocket_endpoint(
-            record.websocket_endpoint or f"kai/sensors/{record.device_id}"
-        )
         if not self.is_valid_topic_filter(record.mqtt_topic):
             raise ConfigurationError(f"invalid MQTT topic filter: {record.mqtt_topic!r}")
         with self._connection() as connection:
-            endpoint_owner = connection.execute(
-                "SELECT name FROM sensors WHERE websocket_endpoint = ? AND name <> ?",
-                (endpoint, old_name or record.name),
+            connection.execute("BEGIN IMMEDIATE")
+            current = connection.execute(
+                "SELECT profile, device_id FROM sensors WHERE name = ?", (old_name or record.name,)
             ).fetchone()
-            if endpoint_owner is not None:
-                raise ConfigurationError(
-                    f"WebSocket endpoint is already assigned to sensor {str(endpoint_owner['name'])!r}: {endpoint!r}"
+            if create_only and current is not None:
+                raise ConfigurationError(f"Sensor name is already in use: {record.name!r}")
+            if old_name is not None and current is None:
+                return False
+            if profile is None:
+                profile = str(current["profile"]) if current is not None else "nemosense"
+            acquisition = sensor_acquisition_mode(profile, record.trigger_mode)
+            routes_explicit = routes is not None
+            if routes is None:
+                routes = (
+                    {"": record.websocket_endpoint or f"kai/sensors/{record.device_id}"}
+                    if profile == "nemosense" or acquisition == "streaming"
+                    else self._read_metric_endpoints(connection, old_name or record.name)
                 )
+            if (create_only or routes_explicit) and record.device_id and (current is None or current["device_id"] != record.device_id):
+                owner = connection.execute(
+                    "SELECT name FROM sensors WHERE device_id = ? AND name <> ?",
+                    (record.device_id, old_name or record.name),
+                ).fetchone()
+                if owner is not None:
+                    raise ConfigurationError(f"Device ID is already assigned to sensor {owner[0]!r}")
+            normalized = self._validate_routes(connection, old_name or record.name, profile, routes, acquisition)
+            endpoint = normalized.get("", "")
             if old_name and old_name != record.name:
                 clash = connection.execute("SELECT 1 FROM sensors WHERE name = ?", (record.name,)).fetchone()
                 if clash is not None:
@@ -405,24 +456,29 @@ class SettingsRepository:
                 connection.execute(
                     """UPDATE sensors SET description=?, location_name=?, broker_id=?, mqtt_server=?, mqtt_port=?,
                     mqtt_topic=?, mqtt_username=?, password_env=?, device_id=?, device_type=?, sample_rate=?, trigger_mode=?,
-                    latitude=?, longitude=?, websocket_endpoint=? WHERE name=?""",
+                    latitude=?, longitude=?, websocket_endpoint=?, profile=? WHERE name=?""",
                     (
                         record.description, record.location_name, record.broker_id, record.mqtt_server, record.mqtt_port,
                         record.mqtt_topic, record.mqtt_username, record.password_env, record.device_id, record.device_type,
-                        record.sample_rate, record.trigger_mode, record.latitude, record.longitude, endpoint, record.name,
+                        record.sample_rate, record.trigger_mode, record.latitude, record.longitude, endpoint, profile, record.name,
                     ),
                 )
-                return True
-            connection.execute(
-                """INSERT INTO sensors(name, description, location_name, broker_id, mqtt_server, mqtt_port,
-                mqtt_topic, mqtt_username, password_env, device_id, device_type, sample_rate, trigger_mode, latitude, longitude,
-                websocket_endpoint)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    record.name, record.description, record.location_name, record.broker_id, record.mqtt_server,
-                    record.mqtt_port, record.mqtt_topic, record.mqtt_username, record.password_env, record.device_id,
-                    record.device_type, record.sample_rate, record.trigger_mode, record.latitude, record.longitude, endpoint,
-                ),
+            else:
+                connection.execute(
+                    """INSERT INTO sensors(name, description, location_name, broker_id, mqtt_server, mqtt_port,
+                    mqtt_topic, mqtt_username, password_env, device_id, device_type, sample_rate, trigger_mode, latitude, longitude,
+                    websocket_endpoint, profile)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        record.name, record.description, record.location_name, record.broker_id, record.mqtt_server,
+                        record.mqtt_port, record.mqtt_topic, record.mqtt_username, record.password_env, record.device_id,
+                        record.device_type, record.sample_rate, record.trigger_mode, record.latitude, record.longitude, endpoint, profile,
+                    ),
+                )
+            connection.execute("DELETE FROM sensor_metric_endpoints WHERE sensor_name = ?", (record.name,))
+            connection.executemany(
+                "INSERT INTO sensor_metric_endpoints(sensor_name, metric_name, endpoint) VALUES (?, ?, ?)",
+                [(record.name, metric, path) for metric, path in normalized.items() if metric],
             )
             return True
 
@@ -465,40 +521,82 @@ class SettingsRepository:
     def set_sensor_node_red_mapping(
         self, name: str, device_id: str, websocket_endpoint: str
     ) -> None:
-        """Update one sensor's canonical ``device_id`` and dedicated WebSocket path."""
-        normalized_device = device_id.strip()
-        if not _TELEMETRY_ID_RE.fullmatch(normalized_device):
-            raise ConfigurationError(
-                "Node-RED device_id must use 1-192 letters, digits, dot, underscore, colon, slash, or dash"
-            )
-        endpoint = self.normalize_websocket_endpoint(websocket_endpoint)
+        sensor = self.get_sensor(name)
+        if sensor is None:
+            raise ConfigurationError(f"sensor not found: {name!r}")
+        normalized_device = self.validate_node_red_device_id(device_id)
+        self.save_sensor(
+            replace(sensor, device_id=normalized_device, mqtt_topic=f"nodered/{normalized_device}",
+                    websocket_endpoint=websocket_endpoint)
+        )
+
+    @staticmethod
+    def validate_node_red_device_id(device_id: str) -> str:
+        normalized = device_id.strip()
+        if not _TELEMETRY_ID_RE.fullmatch(normalized):
+            raise ConfigurationError("Invalid Node-RED device_id. Use 1-192 letters, digits, or ._:/-")
+        return normalized
+
+    @staticmethod
+    def _read_metric_endpoints(connection: sqlite3.Connection, name: str) -> dict[str, str]:
+        return dict(connection.execute(
+            "SELECT metric_name, endpoint FROM sensor_metric_endpoints WHERE sensor_name = ? ORDER BY metric_name",
+            (name,),
+        ).fetchall())
+
+    def get_sensor_streams(self, sensor: SensorRecord) -> dict[str, str]:
+        if sensor.profile == "nemosense" or sensor_acquisition_mode(sensor.profile, sensor.trigger_mode) == "streaming":
+            return {"": sensor.websocket_endpoint}
         with self._connection() as connection:
+            return self._read_metric_endpoints(connection, sensor.name)
+
+    def _validate_routes(
+        self, connection: sqlite3.Connection, name: str, profile: str, routes: dict[str, str], acquisition: str
+    ) -> dict[str, str]:
+        if profile not in SENSOR_PROFILES:
+            raise ConfigurationError("Choose a supported sensor profile")
+        required = ("",) if acquisition == "streaming" else SENSOR_PROFILES[profile][1]
+        if (required and set(routes) != set(required)) or not routes:
+            raise ConfigurationError("Enter the required WebSocket paths for the selected profile and acquisition mode")
+        if profile == "custom" and any(not _TELEMETRY_ID_RE.fullmatch(metric) for metric in routes):
+            raise ConfigurationError("Invalid custom metric name. Use 1-192 letters, digits, or ._:/-")
+        normalized = {metric: self.normalize_websocket_endpoint(path) for metric, path in routes.items()}
+        if len(set(normalized.values())) != len(normalized):
+            raise ConfigurationError("Each metric needs a different WebSocket path")
+        for path in normalized.values():
             owner = connection.execute(
-                "SELECT name FROM sensors WHERE websocket_endpoint = ? AND name <> ?",
-                (endpoint, name),
+                """SELECT name FROM sensors WHERE websocket_endpoint = ? AND name <> ?
+                   UNION ALL
+                   SELECT sensor_name FROM sensor_metric_endpoints WHERE endpoint = ? AND sensor_name <> ?""",
+                (path, name, path, name),
             ).fetchone()
             if owner is not None:
-                raise ConfigurationError(
-                    f"WebSocket endpoint is already assigned to sensor {str(owner['name'])!r}: {endpoint!r}"
-                )
-            cursor = connection.execute(
-                "UPDATE sensors SET device_id = ?, mqtt_topic = ?, websocket_endpoint = ? WHERE name = ?",
-                (normalized_device, f"nodered/{normalized_device}", endpoint, name),
-            )
-            if cursor.rowcount == 0:
-                raise ConfigurationError(f"sensor not found: {name!r}")
+                raise ConfigurationError(f"WebSocket endpoint is already assigned to sensor {owner[0]!r}: {path!r}")
+        return normalized
 
-    def list_node_red_sensor_endpoints(self) -> dict[str, str]:
-        """Return ``endpoint -> device_id`` for independently routed sensors."""
+    def list_node_red_sensor_streams(self) -> dict[str, tuple[str, frozenset[str]]]:
+        """Return the device and allowed metrics for each path; empty allows all metrics."""
         with self._connection() as connection:
             rows = connection.execute(
-                "SELECT websocket_endpoint, device_id FROM sensors "
-                "WHERE websocket_endpoint <> '' ORDER BY websocket_endpoint"
+                """SELECT websocket_endpoint, device_id, '', profile, trigger_mode
+                   FROM sensors WHERE websocket_endpoint <> ''
+                   UNION ALL
+                   SELECT endpoint, device_id, metric_name, profile, trigger_mode
+                   FROM sensor_metric_endpoints JOIN sensors ON sensor_name = name"""
             ).fetchall()
-        return {
-            str(row["websocket_endpoint"]): str(row["device_id"])
-            for row in rows
-        }
+        streams: dict[str, tuple[str, frozenset[str]]] = {}
+        for path, device, metric, profile, trigger_mode in rows:
+            if metric:
+                metrics = (metric,)
+            elif sensor_acquisition_mode(profile, trigger_mode) == "streaming":
+                metrics = SENSOR_PROFILES[profile][1]
+            else:
+                metrics = ()
+            streams[path] = (device, frozenset(metrics))
+        return streams
+
+    def list_node_red_sensor_endpoints(self) -> dict[str, str]:
+        return {path: device for path, (device, _) in self.list_node_red_sensor_streams().items()}
 
     @staticmethod
     def normalize_websocket_endpoint(value: str) -> str:
@@ -563,4 +661,5 @@ class SettingsRepository:
             latitude=float(row["latitude"]),
             longitude=float(row["longitude"]),
             websocket_endpoint=str(row["websocket_endpoint"]),
+            profile=str(row["profile"]),
         )

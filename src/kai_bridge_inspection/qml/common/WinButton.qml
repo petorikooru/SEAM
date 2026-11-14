@@ -12,8 +12,7 @@ Button {
     property bool isQuiet: false
     property int cornerRadius: 8
 
-    property string _iconChar: control.text.length > 0 && control.text.charCodeAt(0) >= 0xE000 ? control.text.charAt(0) : ""
-    property string _labelText: control.text.length > 0 && control.text.charCodeAt(0) >= 0xE000 ? control.text.substring(1).trim() : control.text
+    property string iconName: ""
 
     implicitHeight: 40
     leftPadding: 14
@@ -24,8 +23,8 @@ Button {
         spacing: 8
 
         LucideIcon {
-            visible: control._iconChar !== ""
-            icon: control._iconChar
+            visible: control.iconName !== ""
+            icon: control.iconName
             size: Theme.iconSize
             color: label.color
             Layout.alignment: Qt.AlignVCenter
@@ -33,10 +32,10 @@ Button {
 
         Text {
             id: label
-            visible: control._labelText !== ""
-            text: control._labelText
+            visible: control.text !== ""
+            text: control.text
             font.family: Theme.fontFamily
-            font.pixelSize: 13
+            font.pixelSize: 14
             font.bold: control.isAccent
             color: !control.enabled ? Theme.disabledText :
                    control.isAccent ? Theme.accentText :
