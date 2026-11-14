@@ -1,0 +1,175 @@
+[
+    {
+        "id": "kai-spb-single-tab",
+        "type": "tab",
+        "label": "KAI spBv1.0 Single Sensor",
+        "disabled": false,
+        "info": "Node-RED owns MQTT and Sparkplug B decoding. All messages are normalized to kai.telemetry.v1, filtered by device_id, and sent to the dedicated sensor WebSocket endpoint."
+    },
+    {
+        "id": "kai-spb-comment-main",
+        "type": "comment",
+        "z": "kai-spb-single-tab",
+        "name": "spBv1.0/# -> decode/state -> device_id filter -> dedicated WebSocket",
+        "info": "The wildcard subscription is intentional: NBIRTH/DBIRTH messages are required to populate Sparkplug aliases before DDATA arrives. The switch prevents another device from leaking into this sensor endpoint.",
+        "x": 470,
+        "y": 40,
+        "wires": []
+    },
+    {
+        "id": "kai-spb-comment-host",
+        "type": "comment",
+        "z": "kai-spb-single-tab",
+        "name": "IMPORTANT: configure the broker and keep device_id/path identical to the desktop sensor settings",
+        "info": "Desktop mapping for this flow: device_id = DA25009046, WebSocket endpoint = kai/sensors/Nemosense-1. The Node-RED listener includes the leading slash; the desktop setting may omit it.",
+        "x": 520,
+        "y": 80,
+        "wires": []
+    },
+    {
+        "id": "kai-spb-mqtt-in",
+        "type": "mqtt in",
+        "z": "kai-spb-single-tab",
+        "name": "spBv1.0/# (Buffer)",
+        "topic": "spBv1.0/#",
+        "qos": "0",
+        "datatype": "buffer",
+        "broker": "kai-spb-broker",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 150,
+        "y": 150,
+        "wires": [
+            [
+                "kai-spb-decode"
+            ]
+        ]
+    },
+    {
+        "id": "kai-spb-decode",
+        "type": "kai-sparkplug-decode",
+        "z": "kai-spb-single-tab",
+        "name": "Decode + aliases + state",
+        "namespace": "spBv1.0",
+        "x": 410,
+        "y": 150,
+        "wires": [
+            [
+                "kai-spb-serialize"
+            ]
+        ]
+    },
+    {
+        "id": "kai-spb-serialize",
+        "type": "function",
+        "z": "kai-spb-single-tab",
+        "name": "Validate + serialize canonical envelope",
+        "func": "const envelope = msg.payload;\nif (!envelope || envelope.schema !== 'kai.telemetry.v1' || !Array.isArray(envelope.points)) {\n    node.warn('Ignored message outside kai.telemetry.v1 contract');\n    return null;\n}\nconst deviceId = String(envelope.device_id || '').trim();\nif (!deviceId) {\n    node.warn('Ignored canonical envelope without device_id');\n    return null;\n}\nmsg.device_id = deviceId;\nmsg.payload = JSON.stringify(envelope);\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 700,
+        "y": 150,
+        "wires": [
+            [
+                "kai-spb-device-switch"
+            ]
+        ]
+    },
+    {
+        "id": "kai-spb-device-switch",
+        "type": "switch",
+        "z": "kai-spb-single-tab",
+        "name": "Route DA25009046",
+        "property": "device_id",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "eq",
+                "v": "DA25009046",
+                "vt": "str"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 1,
+        "x": 960,
+        "y": 150,
+        "wires": [
+            [
+                "kai-spb-ws-out"
+            ]
+        ]
+    },
+    {
+        "id": "kai-spb-ws-out",
+        "type": "websocket out",
+        "z": "kai-spb-single-tab",
+        "name": "DA25009046 -> /kai/sensors/Nemosense-1",
+        "server": "kai-spb-ws-listener",
+        "client": "",
+        "x": 1260,
+        "y": 150,
+        "wires": []
+    },
+    {
+        "id": "kai-spb-comment-add",
+        "type": "comment",
+        "z": "kai-spb-single-tab",
+        "name": "For another sensor, add one switch output and one unique WebSocket listener/output pair",
+        "info": "Never reuse a WebSocket path between sensors. Each desktop sensor must use the same device_id and endpoint configured in its Node-RED route.",
+        "x": 970,
+        "y": 230,
+        "wires": []
+    },
+    {
+        "id": "kai-spb-broker",
+        "type": "mqtt-broker",
+        "name": "HIVEMQ_BROKER",
+        "broker": "broker.hivemq.com",
+        "port": 1883,
+        "clientid": "",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": "4",
+        "keepalive": 60,
+        "cleansession": true,
+        "autoUnsubscribe": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthRetain": "false",
+        "birthPayload": "",
+        "birthMsg": {},
+        "closeTopic": "",
+        "closeQos": "0",
+        "closeRetain": "false",
+        "closePayload": "",
+        "closeMsg": {},
+        "willTopic": "",
+        "willQos": "0",
+        "willRetain": "false",
+        "willPayload": "",
+        "willMsg": {},
+        "userProps": "",
+        "sessionExpiry": ""
+    },
+    {
+        "id": "kai-spb-ws-listener",
+        "type": "websocket-listener",
+        "path": "/kai/sensors/Nemosense-1",
+        "wholemsg": "false"
+    },
+    {
+        "id": "kai-spb-global-config",
+        "type": "global-config",
+        "env": [],
+        "modules": {
+            "node-red-contrib-kai-sparkplug": "1.0.0"
+        }
+    }
+]

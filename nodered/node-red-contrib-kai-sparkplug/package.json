@@ -1,0 +1,15 @@
+{
+  "name": "node-red-contrib-kai-sparkplug",
+  "version": "1.0.0",
+  "description": "Sparkplug B decoder and normalizer for KAI Bridge Inspection",
+  "license": "UNLICENSED",
+  "keywords": ["node-red", "sparkplug", "mqtt", "spBv1.0"],
+  "node-red": {
+    "nodes": {
+      "kai-sparkplug-decode": "nodes/kai-sparkplug-decode.js"
+    }
+  },
+  "dependencies": {
+    "protobufjs": "^7.4.0"
+  }
+}

@@ -1,0 +1,182 @@
+[
+  {
+    "id": "tab-kai-spb-multi",
+    "type": "tab",
+    "label": "KAI spBv1.0 Multi-Sensor",
+    "disabled": false,
+    "info": "Node-RED owns MQTT and Sparkplug B. Each physical sensor is routed to one dedicated WebSocket endpoint carrying all normalized metrics for that sensor."
+  },
+  {
+    "id": "comment-architecture",
+    "type": "comment",
+    "z": "tab-kai-spb-multi",
+    "name": "MQTT spBv1.0/# -> decode/state -> device_id switch -> one WebSocket per sensor",
+    "info": "Edit the MQTT broker first. Then edit the device_id rules in the switch node. Add one switch rule and one WebSocket Out node for every additional sensor.",
+    "x": 470,
+    "y": 40,
+    "wires": []
+  },
+  {
+    "id": "comment-broker",
+    "type": "comment",
+    "z": "tab-kai-spb-multi",
+    "name": "IMPORTANT: 127.0.0.1 means the machine/container running Node-RED",
+    "info": "Use 127.0.0.1 only when the MQTT broker runs on the same host and network namespace as Node-RED. Otherwise enter the broker LAN/DNS address and credentials in KAI Sparkplug Broker.",
+    "x": 400,
+    "y": 80,
+    "wires": []
+  },
+  {
+    "id": "mqtt-in-spb",
+    "type": "mqtt in",
+    "z": "tab-kai-spb-multi",
+    "name": "spBv1.0/# (Buffer)",
+    "topic": "spBv1.0/#",
+    "qos": "0",
+    "datatype": "buffer",
+    "broker": "mqtt-broker-kai",
+    "nl": false,
+    "rap": true,
+    "rh": 0,
+    "inputs": 0,
+    "x": 150,
+    "y": 150,
+    "wires": [["decode-spb"]]
+  },
+  {
+    "id": "decode-spb",
+    "type": "kai-sparkplug-decode",
+    "z": "tab-kai-spb-multi",
+    "name": "Decode + aliases + state",
+    "namespace": "spBv1.0",
+    "x": 410,
+    "y": 150,
+    "wires": [["prepare-ws-envelope"]]
+  },
+  {
+    "id": "prepare-ws-envelope",
+    "type": "function",
+    "z": "tab-kai-spb-multi",
+    "name": "Validate + serialize canonical envelope",
+    "func": "const envelope = msg.payload;\nif (!envelope || envelope.schema !== 'kai.telemetry.v1' || !Array.isArray(envelope.points)) {\n    node.warn('Ignored message outside kai.telemetry.v1 contract');\n    return null;\n}\nconst deviceId = String(envelope.device_id || '').trim();\nif (!deviceId) {\n    node.warn('Ignored canonical envelope without device_id');\n    return null;\n}\nmsg.device_id = deviceId;\nmsg.payload = JSON.stringify(envelope);\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 700,
+    "y": 150,
+    "wires": [["switch-device-id"]]
+  },
+  {
+    "id": "switch-device-id",
+    "type": "switch",
+    "z": "tab-kai-spb-multi",
+    "name": "Route by device_id",
+    "property": "device_id",
+    "propertyType": "msg",
+    "rules": [
+      {"t": "eq", "v": "NEMOSENSE-01", "vt": "str"},
+      {"t": "eq", "v": "NEMOSENSE-02", "vt": "str"},
+      {"t": "else"}
+    ],
+    "checkall": "true",
+    "repair": false,
+    "outputs": 3,
+    "x": 970,
+    "y": 150,
+    "wires": [
+      ["ws-out-sensor-01"],
+      ["ws-out-sensor-02"],
+      ["debug-unmatched-device"]
+    ]
+  },
+  {
+    "id": "ws-out-sensor-01",
+    "type": "websocket out",
+    "z": "tab-kai-spb-multi",
+    "name": "Sensor 01 -> kai/sensors/nemosense-01",
+    "server": "ws-listener-sensor-01",
+    "client": "",
+    "x": 1320,
+    "y": 120,
+    "wires": []
+  },
+  {
+    "id": "ws-out-sensor-02",
+    "type": "websocket out",
+    "z": "tab-kai-spb-multi",
+    "name": "Sensor 02 -> kai/sensors/nemosense-02",
+    "server": "ws-listener-sensor-02",
+    "client": "",
+    "x": 1320,
+    "y": 160,
+    "wires": []
+  },
+  {
+    "id": "debug-unmatched-device",
+    "type": "debug",
+    "z": "tab-kai-spb-multi",
+    "name": "Unmatched device_id",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "device_id",
+    "targetType": "msg",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 1250,
+    "y": 210,
+    "wires": []
+  },
+  {
+    "id": "comment-add-sensor",
+    "type": "comment",
+    "z": "tab-kai-spb-multi",
+    "name": "To add Sensor 03: add a switch rule, add a WebSocket Out, and use /kai/sensors/<unique-id>",
+    "info": "The desktop sensor configuration must use the same device_id and WebSocket path. Do not reuse a WebSocket path for another sensor.",
+    "x": 1000,
+    "y": 270,
+    "wires": []
+  },
+  {
+    "id": "mqtt-broker-kai",
+    "type": "mqtt-broker",
+    "name": "KAI Sparkplug Broker",
+    "broker": "127.0.0.1",
+    "port": "1883",
+    "clientid": "nodered-kai-bridge",
+    "autoConnect": true,
+    "usetls": false,
+    "protocolVersion": "4",
+    "keepalive": "60",
+    "cleansession": true,
+    "autoUnsubscribe": true,
+    "birthTopic": "",
+    "birthQos": "0",
+    "birthPayload": "",
+    "birthMsg": {},
+    "closeTopic": "",
+    "closeQos": "0",
+    "closePayload": "",
+    "closeMsg": {},
+    "willTopic": "",
+    "willQos": "0",
+    "willPayload": "",
+    "willMsg": {}
+  },
+  {
+    "id": "ws-listener-sensor-01",
+    "type": "websocket-listener",
+    "path": "/kai/sensors/nemosense-01",
+    "wholemsg": "false"
+  },
+  {
+    "id": "ws-listener-sensor-02",
+    "type": "websocket-listener",
+    "path": "/kai/sensors/nemosense-02",
+    "wholemsg": "false"
+  }
+]

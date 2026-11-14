@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=KAI Bridge Inspection
+Comment=IoT bridge inspection dashboard
+Exec=kai-bridge-inspection
+Icon=kai-bridge-inspection
+Terminal=false
+Categories=Utility;Engineering;
+StartupNotify=true

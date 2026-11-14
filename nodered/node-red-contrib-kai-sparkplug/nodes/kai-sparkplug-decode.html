@@ -1,0 +1,30 @@
+<script type="text/javascript">
+RED.nodes.registerType('kai-sparkplug-decode', {
+    category: 'parser',
+    color: '#D85A4A',
+    defaults: {
+        name: {value: ''},
+        namespace: {value: 'spBv1.0', required: true}
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: 'parser-json.svg',
+    label: function() { return this.name || 'Sparkplug B decode'; }
+});
+</script>
+
+<script type="text/html" data-template-name="kai-sparkplug-decode">
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Sparkplug B decode">
+    </div>
+    <div class="form-row">
+        <label for="node-input-namespace"><i class="fa fa-sitemap"></i> Namespace</label>
+        <input type="text" id="node-input-namespace" placeholder="spBv1.0">
+    </div>
+</script>
+
+<script type="text/html" data-help-name="kai-sparkplug-decode">
+    <p>Decodes Sparkplug B protobuf payloads, maintains BIRTH alias maps and sequence state, and emits <code>kai.telemetry.v1</code> normalized JSON.</p>
+    <p>Input requires <code>msg.topic</code> and a Buffer in <code>msg.payload</code>. Configure the upstream MQTT In node with output type <strong>Buffer</strong>.</p>
+</script>

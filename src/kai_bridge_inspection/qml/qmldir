@@ -1,0 +1,12 @@
+module qml
+
+singleton Theme 1.0 Theme.qml
+singleton Icons 1.0 Icons.qml
+singleton I18n 1.0 I18n.qml
+
+WinTextField 1.0 ./common/WinTextField.qml
+WinTextArea  1.0 ./common/WinTextArea.qml
+WinButton    1.0 ./common/WinButton.qml
+
+Main 1.0 Main.qml
+DaemonPanel 1.0 ./components/DaemonPanel.qml
