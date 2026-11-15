@@ -1092,7 +1092,10 @@ class BackendController(QObject):
             self._history_job.cancel()
         device_id = self._sensor_to_device.get(sensor_name, sensor_name)
         selected = metrics.split(",")[:3]
+        queued_at = time.perf_counter()
+
         def load() -> list[dict[str, object]]:
+            started_at = time.perf_counter()
             reported = 0
             results = []
             for index, metric in enumerate(selected):
@@ -1105,6 +1108,10 @@ class BackendController(QObject):
 
                 results.append(self._history_series(device_id, metric, start_ns, end_ns, cancel, progress))
                 progress(100)
+            LOGGER.debug(
+                "History request %s waited %.3fs and sampled %d series in %.3fs",
+                request, started_at - queued_at, len(results), time.perf_counter() - started_at,
+            )
             return results
 
         self._history_job = self._history_executor.submit(load)
@@ -1146,7 +1153,8 @@ class BackendController(QObject):
                 metric_name=candidate,
                 max_points=_HISTORY_POINT_LIMIT,
             )
-            points = self.telemetry_repository.sample_history(query, cancel, progress)
+            gaps: list[tuple[int, int]] = []
+            points = self.telemetry_repository.sample_history(query, cancel, progress, gaps)
             if points:
                 actual_metric = candidate
                 break
@@ -1164,9 +1172,12 @@ class BackendController(QObject):
             "metric": actual_metric,
             "requestedMetric": metric,
             "empty": False,
+            "rangeStartMs": start_ns // 1_000_000 if start_ns else None,
+            "rangeEndMs": end_ns // 1_000_000 if end_ns else None,
             "minX": qpoints[0][0],
             "maxX": qpoints[-1][0],
             "points": [list(point) for point in qpoints],
+            "gaps": [[left / 1_000_000, right / 1_000_000] for left, right in gaps],
             "minY": min(values),
             "maxY": max(values),
         }

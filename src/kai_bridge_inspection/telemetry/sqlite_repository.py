@@ -7,6 +7,7 @@ import sqlite3
 from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import CancelledError
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 from threading import Event
 from typing import Final
@@ -167,24 +168,35 @@ class SQLiteTelemetryRepository:
     def sample_history(
         self, query: HistoricalQuery, cancel: Event | None = None,
         progress: Callable[[int], None] | None = None,
+        gaps: list[tuple[int, int]] | None = None,
     ) -> list[tuple[int, float]]:
         if cancel is not None and cancel.is_set():
             raise CancelledError
-        where, parameters = self._query_filters(query)
+        # Seek queries supply their own timestamp bounds. Repeating those
+        # predicates can make SQLite seek from the original range start.
+        filters = replace(query, start_timestamp_ns=0, end_timestamp_ns=0)
+        where, parameters = self._query_filters(filters)
         conjunction = " AND " if where else " WHERE "
+        table = "telemetry_points"
+        if query.device_id and query.metric_name:
+            table += " INDEXED BY idx_telemetry_device_metric_time"
         sql = (
             "SELECT timestamp_ns, COALESCE(integer_value, numeric_value) "
-            "FROM telemetry_points" + where
+            f"FROM {table}" + where
             + conjunction
             + "(integer_value IS NOT NULL OR numeric_value IS NOT NULL)"
+        )
+        range_sql = sql + " AND timestamp_ns >= ? AND timestamp_ns <= ?"
+        range_parameters = (
+            *parameters, query.start_timestamp_ns or -(2**63), query.end_timestamp_ns or 2**63 - 1
         )
         with self._connection() as connection:
             # Keep the endpoints and bucket lookups on the same read snapshot.
             connection.execute("BEGIN")
-            first = connection.execute(sql + " ORDER BY timestamp_ns, id LIMIT 1", parameters).fetchone()
+            first = connection.execute(range_sql + " ORDER BY timestamp_ns, id LIMIT 1", range_parameters).fetchone()
             if first is None:
                 return []
-            last = connection.execute(sql + " ORDER BY timestamp_ns DESC, id DESC LIMIT 1", parameters).fetchone()
+            last = connection.execute(range_sql + " ORDER BY timestamp_ns DESC, id DESC LIMIT 1", range_parameters).fetchone()
             points = [(first[0], first[1])]
             if query.max_points <= 1 or last is None or last[0] == first[0]:
                 return points
@@ -208,6 +220,20 @@ class SQLiteTelemetryRepository:
                 if progress is not None:
                     progress(min(99, (start - origin) * 100 // span))
             points.append((last[0], last[1]))
+            if gaps is not None:
+                # Validate against stored timestamps so downsampling alone never creates a gap.
+                outage_ns = 15_000_000_000
+                for (left, _), (right, _) in zip(points, points[1:]):
+                    if right - left < outage_ns:
+                        continue
+                    if cancel is not None and cancel.is_set():
+                        raise CancelledError
+                    before = connection.execute(
+                        sql + " AND timestamp_ns >= ? AND timestamp_ns < ? ORDER BY timestamp_ns DESC, id DESC LIMIT 1",
+                        (*parameters, left, right),
+                    ).fetchone()
+                    if before is not None and right - before[0] >= outage_ns:
+                        gaps.append((before[0], right))
             return points
 
     def iter_points(self, query: HistoricalQuery) -> Iterator[TelemetryPoint]:
@@ -245,12 +271,21 @@ class SQLiteTelemetryRepository:
         return tuple(str(row[0]) for row in rows)
 
     def list_metrics(self, device_id: str) -> Sequence[str]:
+        prefix = (
+            "SELECT metric_name FROM telemetry_points "
+            "INDEXED BY idx_telemetry_device_metric_time WHERE device_id = ?"
+        )
+        metrics: list[str] = []
         with self._connection() as connection:
-            rows = connection.execute(
-                "SELECT DISTINCT metric_name FROM telemetry_points WHERE device_id = ? ORDER BY metric_name",
-                (device_id,),
-            ).fetchall()
-        return tuple(str(row[0]) for row in rows)
+            connection.execute("BEGIN")
+            row = connection.execute(prefix + " ORDER BY metric_name LIMIT 1", (device_id,)).fetchone()
+            while row is not None:
+                metrics.append(str(row[0]))
+                row = connection.execute(
+                    prefix + " AND metric_name > ? ORDER BY metric_name LIMIT 1",
+                    (device_id, metrics[-1]),
+                ).fetchone()
+        return tuple(metrics)
 
     def purge_before(self, timestamp_ns: int) -> int:
         if timestamp_ns <= 0:

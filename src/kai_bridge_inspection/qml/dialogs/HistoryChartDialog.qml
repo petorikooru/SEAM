@@ -25,6 +25,10 @@ Popup {
     property bool panMode: true
     property bool chartReady: false
     property var fullView: null
+    property var plottedSeries: []
+    property var lossBands: []
+    property real yLimit: 0
+    property bool fullScaleY: false
     property bool statusError: false
 
     function useRecentRange() {
@@ -37,17 +41,67 @@ Popup {
         if (!chartReady)
             return
         setTimeRange(fullView.xMin, fullView.xMax)
-        axisY.min = fullView.yMin
-        axisY.max = fullView.yMax
+        fullScaleY = false
+        fitVisibleY()
     }
 
     function setTimeRange(start, end) {
         const first = new Date(Math.floor(start))
-        const last = new Date(Math.max(Math.ceil(end), first.getTime() + 1000))
+        const last = new Date(Math.max(Math.ceil(end), first.getTime() + 1))
         if (first > axisX.max)
             axisX.max = last
         axisX.min = first
         axisX.max = last
+    }
+
+    function fitVisibleY() {
+        if (!chartReady)
+            return
+        if (fullScaleY) {
+            axisY.min = -yLimit
+            axisY.max = yLimit
+            return
+        }
+
+        const start = axisX.min.getTime()
+        const end = axisX.max.getTime()
+        let lower = Infinity
+        let upper = -Infinity
+        for (const points of plottedSeries) {
+            for (const [time, value] of points) {
+                if (time < start)
+                    continue
+                if (time > end)
+                    break
+                lower = Math.min(lower, value)
+                upper = Math.max(upper, value)
+            }
+        }
+        if (lower === Infinity)
+            return
+
+        if (yLimit > 0) {
+            const pad = Math.max((upper - lower) * 0.1, yLimit / 200)
+            const min = Math.max(-yLimit, Math.min(yLimit - pad, lower - pad))
+            const max = Math.min(yLimit, Math.max(-yLimit + pad, upper + pad))
+            axisY.min = min
+            axisY.max = max
+        } else {
+            applyYAxis(metricModel.get(metricCombo.currentIndex).metrics.split(",")[0], lower, upper)
+        }
+    }
+
+    function panTime(deltaPixels, plotWidth) {
+        if (plotWidth <= 0)
+            return
+        const start = axisX.min.getTime()
+        const span = Math.min(axisX.max.getTime() - start, fullView.xMax - fullView.xMin)
+        const target = start + deltaPixels * span / plotWidth
+        const next = Math.round(Math.max(fullView.xMin, Math.min(fullView.xMax - span, target)))
+        if (next !== start) {
+            setTimeRange(next, next + span)
+            fitVisibleY()
+        }
     }
 
     function seconds(fields) {
@@ -279,8 +333,10 @@ Popup {
         let totalCount = 0
         let xMin = Infinity
         let xMax = -Infinity
-        let minY = Number.POSITIVE_INFINITY
-        let maxY = Number.NEGATIVE_INFINITY
+        let rangeStart = null
+        let rangeEnd = null
+        const loadedSeries = []
+        const gaps = []
         let emptyHint = ""
 
         for (let i = 0; i < metrics.length && i < series.length; i++) {
@@ -295,8 +351,11 @@ Popup {
             totalCount += meta.count
             xMin = Math.min(xMin, meta.minX)
             xMax = Math.max(xMax, meta.maxX)
-            minY = Math.min(minY, meta.minY)
-            maxY = Math.max(maxY, meta.maxY)
+            rangeStart = meta.rangeStartMs ?? rangeStart
+            rangeEnd = meta.rangeEndMs ?? rangeEnd
+            loadedSeries.push(meta.points)
+            for (const gap of (meta.gaps || []))
+                gaps.push(gap)
         }
 
         emptyState.visible = totalCount === 0
@@ -307,11 +366,21 @@ Popup {
             return
         }
 
-        setTimeRange(xMin, xMax)
+        setTimeRange(rangeStart ?? xMin, rangeEnd ?? xMax)
         axisY.titleText = metricRow.yTitle
-        applyYAxis(metrics[0], minY, maxY)
-        fullView = {xMin: axisX.min.getTime(), xMax: axisX.max.getTime(), yMin: axisY.min, yMax: axisY.max}
+        fullView = {xMin: axisX.min.getTime(), xMax: axisX.max.getTime()}
+        plottedSeries = loadedSeries
+        // Use the combined extent of all plotted metrics for the outside bands.
+        if (rangeStart !== null && rangeStart < xMin)
+            gaps.unshift([rangeStart, xMin, true])
+        if (rangeEnd !== null && xMax < rangeEnd)
+            gaps.push([xMax, rangeEnd, true])
+        lossBands = gaps
+        yLimit = /^ACC\/[XYZ]$/.test(metrics[0]) ? 8 :
+            /^ACC\/(PITCH|ROLL)$/.test(metrics[0]) ? 90 : 0
+        fullScaleY = false
         chartReady = true
+        fitVisibleY()
         const format = "yyyy-MM-dd HH:mm:ss"
         statusText.text = totalCount.toLocaleString(Qt.locale(), "f", 0) + " plotted points  •  " +
             Qt.formatDateTime(new Date(xMin), format) + " to " + Qt.formatDateTime(new Date(xMax), format)
@@ -440,9 +509,18 @@ Popup {
 
         RowLayout {
             Layout.fillWidth: true
-            WinButton { text: "Pan"; isAccent: dialog.panMode; enabled: dialog.chartReady; onClicked: dialog.panMode = true }
+            WinButton { text: "Pan"; isAccent: dialog.panMode; enabled: dialog.chartReady; onClicked: { dialog.panMode = true; dialog.fitVisibleY() } }
             WinButton { text: "Select"; isAccent: !dialog.panMode; enabled: dialog.chartReady; onClicked: dialog.panMode = false }
             WinButton { text: "Reset"; enabled: dialog.chartReady; onClicked: dialog.resetView() }
+            WinButton {
+                text: dialog.fullScaleY ? "Auto Y" : "Full Y"
+                visible: dialog.yLimit > 0
+                enabled: dialog.chartReady
+                onClicked: {
+                    dialog.fullScaleY = !dialog.fullScaleY
+                    dialog.fitVisibleY()
+                }
+            }
             Label {
                 Layout.fillWidth: true
                 elide: Text.ElideRight
@@ -507,6 +585,53 @@ Popup {
                 LineSeries { id: lineC; axisX: axisX; axisY: axisY; width: 2.2; useOpenGL: false }
             }
 
+            Item {
+                anchors.fill: parent
+                visible: dialog.chartReady
+                Repeater {
+                    model: dialog.lossBands
+                    delegate: Rectangle {
+                        required property var modelData
+                        readonly property rect plot: historyChart.plotArea
+                        readonly property real start: axisX.min.getTime()
+                        readonly property real span: Math.max(1, axisX.max.getTime() - start)
+                        readonly property real leftRatio: Math.max(0, (modelData[0] - start) / span)
+                        readonly property real rightRatio: Math.min(1, (modelData[1] - start) / span)
+                        visible: rightRatio > leftRatio
+                        x: plot.x + plot.width * leftRatio
+                        y: plot.y
+                        width: plot.width * Math.max(0, rightRatio - leftRatio)
+                        height: plot.height
+                        readonly property bool outsideReadings: modelData[2] === true
+                        color: Qt.rgba(0.5, 0.5, 0.5, outsideReadings ? 0.20 : 0.38)
+                        readonly property string gapTitle: outsideReadings
+                            ? I18n.t("history.noRecordedData", "No recorded data")
+                            : I18n.t("history.dataLoss", "Data loss")
+                        readonly property string interval: Qt.formatDateTime(new Date(modelData[0]), "yyyy-MM-dd HH:mm:ss") +
+                            " – " + Qt.formatDateTime(new Date(modelData[1]), "yyyy-MM-dd HH:mm:ss")
+                        HoverHandler { id: gapHover }
+                        ToolTip.visible: gapHover.hovered
+                        ToolTip.delay: 250
+                        ToolTip.text: gapTitle + "\n" + interval
+                        Text {
+                            id: gapDetails
+                            anchors.centerIn: parent
+                            text: parent.gapTitle + "\n" + parent.interval
+                            horizontalAlignment: Text.AlignHCenter
+                            color: Theme.text
+                            visible: parent.width >= implicitWidth + 12 && parent.height >= implicitHeight + 8
+                        }
+                        Text {
+                            anchors.centerIn: parent
+                            text: parent.gapTitle
+                            color: Theme.text
+                            visible: !gapDetails.visible &&
+                                parent.width >= implicitWidth + 12 && parent.height >= implicitHeight + 8
+                        }
+                    }
+                }
+            }
+
             MouseArea {
                 id: chartDrag
                 anchors.fill: parent
@@ -532,13 +657,40 @@ Popup {
                 onPositionChanged: function(mouse) {
                     if (!pressed || !dialog.panMode)
                         return
-                    historyChart.scrollLeft(previous.x - mouse.x)
-                    historyChart.scrollUp(mouse.y - previous.y)
+                    dialog.panTime(previous.x - mouse.x, historyChart.plotArea.width)
                     previous = Qt.point(mouse.x, mouse.y)
                 }
+                onWheel: function(wheel) {
+                    const delta = wheel.angleDelta.y || wheel.pixelDelta.y
+                    const horizontal = wheel.pixelDelta.x || wheel.angleDelta.x / 3
+                    if ((!delta && !horizontal) || !insidePlot(wheel.x, wheel.y)) {
+                        wheel.accepted = false
+                        return
+                    }
+                    const plot = historyChart.plotArea
+                    if (horizontal && Math.abs(horizontal) >= Math.abs(wheel.pixelDelta.y || wheel.angleDelta.y / 3)) {
+                        dialog.panTime(-horizontal, plot.width)
+                        wheel.accepted = true
+                        return
+                    }
+                    const ratio = (wheel.x - plot.x) / plot.width
+                    const start = axisX.min.getTime()
+                    const span = axisX.max.getTime() - start
+                    const bounds = dialog.fullView
+                    const total = bounds.xMax - bounds.xMin
+                    const nextSpan = Math.min(total, Math.max(1, Math.round(span * (delta > 0 ? 0.8 : 1.25))))
+                    const left = Math.max(bounds.xMin, Math.min(bounds.xMax - nextSpan,
+                        Math.round(start + (span - nextSpan) * ratio)))
+                    dialog.setTimeRange(left, left + nextSpan)
+                    dialog.fitVisibleY()
+                    wheel.accepted = true
+                }
                 onReleased: {
-                    if (!dialog.panMode && selection.width >= 10 && selection.height >= 10)
+                    if (!dialog.panMode && selection.width >= 10 && selection.height >= 10) {
                         historyChart.zoomIn(Qt.rect(selection.x, selection.y, selection.width, selection.height))
+                        if (dialog.fullScaleY)
+                            dialog.fitVisibleY()
+                    }
                 }
             }
 
