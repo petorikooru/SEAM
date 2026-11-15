@@ -150,12 +150,6 @@ Popup {
                 }
             }
 
-            StatusPill {
-                text: dialog.streamStatus()
-                iconText: Icons.signal
-                accentColor: dialog.statusColor(dialog.streamStatus())
-            }
-
             WinButton {
                 iconName: Icons.cancel
                 Accessible.name: I18n.t("common.close", "Close")

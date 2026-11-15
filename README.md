@@ -112,7 +112,7 @@ temperature and battery. For each additional metric, configure a matching
 output and listener, and send the exact case-sensitive metric name and
 device ID. Custom profiles also accept other metric names allowed by the
 [telemetry contract](docs/nodered-contract.md). Those metrics are available
-in Historical Graph.
+in Historical Telemetry when they contain stored numeric readings.
 In Node-RED, connect your device decoder to a **Function** node with two
 outputs. The decoder should place the sample timestamp in
 `msg.payload.timestamp_ns` as a decimal string of UTC nanoseconds, the
@@ -146,6 +146,16 @@ nodes to send the payload only, then deploy. Set the Node-RED host and port
 on the SEAM **Node-RED** page. SEAM automatically connects to the saved paths
 and Node-RED routes each new sample to its configured listener. To add another
 metric, add a Function output, a WebSocket listener, and a matching SEAM row.
+
+## History, exports, and notifications
+
+- Open **History** on a sensor to view stored numeric readings. The dialog starts at **Last 1 Hour**. Choose a preset or set a custom range with the local-time calendar and hour/minute controls, then click **Apply**. The end minute is included.
+- **Select** zooms to a box, **Pan** moves within the applied time range, and **Reset** restores that range. Scroll vertically to zoom under the pointer or swipe horizontally on a touchpad to pan. For motion metrics, **Full Y** shows ±8 g for acceleration or ±90° for inclination. **Auto Y** fits the visible readings.
+- Gray bands mark detected **Data loss** between readings or **No recorded data** at either end of the selected range. Hover for the local-time interval.
+- **Export All Parameters** saves all stored metrics for the sensor in the chosen range as **CSV** or **Excel (.xlsx)**. The export runs in the background and reports progress, completion, or errors through notifications.
+- Open **Notifications** beside the window controls to see the latest 50 notices from this session. Sensor disconnect and reconnect notices track live telemetry activity. The first reading establishes a silent baseline.
+
+See [telemetry storage](docs/telemetry-storage.md) for sampling, export format, and history performance troubleshooting.
 
 ## MQTT connection error
 
@@ -188,6 +198,8 @@ python -m json.tool nodered/flows/spbv1.0-kai-bridge.json > /dev/null
 
 ## Documentation
 
+- [Documentation index](docs/README.md)
+- [Telemetry storage](docs/telemetry-storage.md)
 - `docs/architecture.md`
 - `docs/nodered-migration.md`
 - `docs/nodered-contract.md`

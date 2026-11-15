@@ -63,7 +63,7 @@ GridLayout {
     }
     SensorMetricCard {
         labelText: I18n.t("sensor.deviceLink", "Device Link")
-        valueText: "MQTT " + grid.mqttStatus
+        valueText: grid.mqttStatus
         captionText: "NTP " + grid.ntpStatus
         iconText: Icons.connection
     }

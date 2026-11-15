@@ -10,7 +10,7 @@ SEAM (Structure Evaluation and Acquisition Monitoring) is a desktop bridge-inspe
 
 - `src/kai_bridge_inspection/`: desktop Python package; `application/` contains startup code, `qml/` contains the interface, and `telemetry/`, `controllers/`, `models/`, and `settings/` contain related application logic.
 - `nodered/`: Node-RED flow and Sparkplug decoder. See `nodered/README.md` before changing the ingest pipeline.
-- `docs/architecture.md` and `docs/nodered-contract.md`: architecture and the canonical telemetry contract.
+- [Documentation index](docs/README.md): architecture, Node-RED contract, telemetry storage, QML API, and validation.
 - `tests/`: regression coverage; `pyproject.toml`: Python dependencies, tooling, and package data; `packaging/`: distribution assets.
 
 ## Non-negotiable architecture boundaries
@@ -20,6 +20,13 @@ SEAM (Structure Evaluation and Acquisition Monitoring) is a desktop bridge-inspe
 3. Validate schema, payload types, timestamps, and the match between configured endpoint, `device_id`, and the configured `metric_name` where applicable before persisting. Reject malformed or mismatched batches; do not partially save an invalid batch.
 4. Preserve the `kai.telemetry.v1` contract unless the coordinated Node-RED, desktop, docs, and tests changes explicitly introduce a versioned replacement.
 5. Keep the GUI responsive: WebSocket handling, database queries/writes, and exports must not block the QML/GUI thread. Bound queues and handle disconnected sensors independently.
+
+## History and export
+
+- Keep history sampling and file exports on background workers. Keep chart results bounded and preserve the applied time range, cancellation, and request-ID checks when changing the history UI.
+- When changing SQLite history queries, verify the query plan and benchmark a bounded range with dense synthetic telemetry. Check that each indexed sampling lookup seeks from its own timestamp bounds.
+- Apply downsampling only to chart data. CSV and Excel must include every matching stored reading and preserve nanosecond timestamps. Keep staged writes and shutdown cancellation so an interrupted export leaves an existing destination intact.
+- Document changes to user workflows in the README, query and export behavior in [telemetry storage](docs/telemetry-storage.md), and slots or signals in the [QML contract](docs/qml-contract.md). Update the [validation procedure](docs/validation.md) when the smoke-test steps change.
 
 ## Database direction: MySQL
 
