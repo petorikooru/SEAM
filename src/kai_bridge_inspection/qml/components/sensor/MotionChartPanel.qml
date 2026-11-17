@@ -15,6 +15,7 @@ Rectangle {
     property color iconColor: Theme.info
     property var seriesModel: []
     property bool frozen: false
+    property bool autoScaleY: true
     property bool panMode: true
     property int staleSeconds: 0
     property bool hasLiveSamples: true
@@ -157,6 +158,14 @@ Rectangle {
                 iconName: Icons.refresh; text: I18n.t("common.reset", "Reset")
                 enabled: panel.frozen
                 onClicked: panel.resetRequested()
+            }
+            WinButton {
+                height: 34
+                text: I18n.t("common.autoscaleY", "Autoscale Y")
+                checkable: true
+                checked: panel.autoScaleY
+                isAccent: checked
+                onToggled: panel.autoScaleY = checked
             }
         }
 

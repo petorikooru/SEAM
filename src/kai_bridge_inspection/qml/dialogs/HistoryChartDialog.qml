@@ -28,7 +28,7 @@ Popup {
     property var plottedSeries: []
     property var lossBands: []
     property real yLimit: 0
-    property bool fullScaleY: false
+    property bool autoScaleY: true
     property bool statusError: false
 
     function useRecentRange() {
@@ -41,7 +41,6 @@ Popup {
         if (!chartReady)
             return
         setTimeRange(fullView.xMin, fullView.xMax)
-        fullScaleY = false
         fitVisibleY()
     }
 
@@ -57,9 +56,13 @@ Popup {
     function fitVisibleY() {
         if (!chartReady)
             return
-        if (fullScaleY) {
-            axisY.min = -yLimit
-            axisY.max = yLimit
+        if (!autoScaleY) {
+            if (yLimit > 0) {
+                axisY.min = -yLimit
+                axisY.max = yLimit
+            } else {
+                applyYAxis(fullView.metric, fullView.yMin, fullView.yMax)
+            }
             return
         }
 
@@ -333,6 +336,8 @@ Popup {
         let totalCount = 0
         let xMin = Infinity
         let xMax = -Infinity
+        let yMin = Infinity
+        let yMax = -Infinity
         let rangeStart = null
         let rangeEnd = null
         const loadedSeries = []
@@ -351,6 +356,8 @@ Popup {
             totalCount += meta.count
             xMin = Math.min(xMin, meta.minX)
             xMax = Math.max(xMax, meta.maxX)
+            yMin = Math.min(yMin, meta.minY)
+            yMax = Math.max(yMax, meta.maxY)
             rangeStart = meta.rangeStartMs ?? rangeStart
             rangeEnd = meta.rangeEndMs ?? rangeEnd
             loadedSeries.push(meta.points)
@@ -368,7 +375,7 @@ Popup {
 
         setTimeRange(rangeStart ?? xMin, rangeEnd ?? xMax)
         axisY.titleText = metricRow.yTitle
-        fullView = {xMin: axisX.min.getTime(), xMax: axisX.max.getTime()}
+        fullView = {xMin: axisX.min.getTime(), xMax: axisX.max.getTime(), yMin, yMax, metric: metrics[0]}
         plottedSeries = loadedSeries
         // Use the combined extent of all plotted metrics for the outside bands.
         if (rangeStart !== null && rangeStart < xMin)
@@ -378,7 +385,6 @@ Popup {
         lossBands = gaps
         yLimit = /^ACC\/[XYZ]$/.test(metrics[0]) ? 8 :
             /^ACC\/(PITCH|ROLL)$/.test(metrics[0]) ? 90 : 0
-        fullScaleY = false
         chartReady = true
         fitVisibleY()
         const format = "yyyy-MM-dd HH:mm:ss"
@@ -513,11 +519,13 @@ Popup {
             WinButton { text: "Select"; isAccent: !dialog.panMode; enabled: dialog.chartReady; onClicked: dialog.panMode = false }
             WinButton { text: "Reset"; enabled: dialog.chartReady; onClicked: dialog.resetView() }
             WinButton {
-                text: dialog.fullScaleY ? "Auto Y" : "Full Y"
-                visible: dialog.yLimit > 0
+                text: I18n.t("common.autoscaleY", "Autoscale Y")
+                checkable: true
+                checked: dialog.autoScaleY
+                isAccent: checked
                 enabled: dialog.chartReady
-                onClicked: {
-                    dialog.fullScaleY = !dialog.fullScaleY
+                onToggled: {
+                    dialog.autoScaleY = checked
                     dialog.fitVisibleY()
                 }
             }
@@ -688,8 +696,7 @@ Popup {
                 onReleased: {
                     if (!dialog.panMode && selection.width >= 10 && selection.height >= 10) {
                         historyChart.zoomIn(Qt.rect(selection.x, selection.y, selection.width, selection.height))
-                        if (dialog.fullScaleY)
-                            dialog.fitVisibleY()
+                        dialog.fitVisibleY()
                     }
                 }
             }

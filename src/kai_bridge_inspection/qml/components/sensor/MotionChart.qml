@@ -6,6 +6,7 @@ Item {
     id: root
 
     property bool frozen: false
+    property bool autoScaleY: true
     property bool panMode: true
     property string yAxisTitle: ""
     property real defaultYMin: -2
@@ -73,7 +74,7 @@ Item {
     }
 
     function queueLiveFit() {
-        if (!frozen)
+        if (!frozen && autoScaleY)
             liveFitTimer.start()
     }
 
@@ -84,13 +85,20 @@ Item {
     }
 
     function fitYRange() {
+        if (!autoScaleY) {
+            setFrozenYRange(-frozenYLimit, frozenYLimit)
+            return
+        }
         let lower = Infinity
         let upper = -Infinity
         for (const series of seriesObjects) {
             if (!series.visible)
                 continue
             for (let index = 0; index < series.count; ++index) {
-                const value = series.at(index).y
+                const point = series.at(index)
+                if (point.x < axisX.min || point.x > axisX.max)
+                    continue
+                const value = point.y
                 if (Number.isFinite(value)) {
                     lower = Math.min(lower, value)
                     upper = Math.max(upper, value)
@@ -121,7 +129,11 @@ Item {
             resetView()
     }
 
-    Component.onCompleted: initializeSeries()
+    onAutoScaleYChanged: fitYRange()
+    Component.onCompleted: {
+        initializeSeries()
+        fitYRange()
+    }
     onFrozenChanged: {
         if (!frozen)
             resetView()
@@ -175,7 +187,6 @@ Item {
             preventStealing: true
 
             property real lastX: 0
-            property real lastY: 0
             property real startX: 0
             property real startY: 0
 
@@ -198,7 +209,6 @@ Item {
                     return
                 if (root.panMode) {
                     lastX = mouse.x
-                    lastY = mouse.y
                 } else {
                     startX = mouse.x
                     startY = mouse.y
@@ -226,11 +236,8 @@ Item {
                     axisX.min = range[0]
                     axisX.max = range[1]
 
-                    const ySpan = axisY.max - axisY.min
-                    const yShift = ((mouse.y - lastY) / plot.height) * ySpan
-                    root.setFrozenYRange(axisY.min + yShift, axisY.max + yShift)
+                    root.fitYRange()
                     lastX = mouse.x
-                    lastY = mouse.y
                 } else if (zoomRect.visible) {
                     zoomRect.x = Math.min(startX, mouse.x)
                     zoomRect.y = Math.min(startY, mouse.y)
@@ -251,13 +258,9 @@ Item {
                     return
                 const left = Math.max(0, Math.min(1, (zoomRect.x - plot.x) / plot.width))
                 const right = Math.max(0, Math.min(1, (zoomRect.x + zoomRect.width - plot.x) / plot.width))
-                const lower = Math.max(0, Math.min(1, 1 - (zoomRect.y + zoomRect.height - plot.y) / plot.height))
-                const upper = Math.max(0, Math.min(1, 1 - (zoomRect.y - plot.y) / plot.height))
 
                 const oldXMin = axisX.min
                 const oldXSpan = axisX.max - axisX.min
-                const oldYMin = axisY.min
-                const oldYSpan = axisY.max - axisY.min
                 let newMin = oldXMin + oldXSpan * left
                 let newMax = oldXMin + oldXSpan * right
                 if (newMax - newMin < root.minimumXSpan) {
@@ -268,7 +271,7 @@ Item {
                 const range = clampedXRange(newMin, newMax)
                 axisX.min = range[0]
                 axisX.max = range[1]
-                root.setFrozenYRange(oldYMin + oldYSpan * lower, oldYMin + oldYSpan * upper)
+                root.fitYRange()
             }
 
             onCanceled: zoomRect.visible = false
@@ -295,12 +298,7 @@ Item {
                 axisX.min = range[0]
                 axisX.max = range[1]
 
-                const oldYSpan = axisY.max - axisY.min
-                const newYSpan = Math.max(0.0001, Math.min(2 * root.frozenYLimit, oldYSpan * factor))
-                const yRatio = Math.max(0, Math.min(1, 1 - (wheel.y - plot.y) / plot.height))
-                const yAtPointer = axisY.min + oldYSpan * yRatio
-                const lower = yAtPointer - newYSpan * yRatio
-                root.setFrozenYRange(lower, lower + newYSpan)
+                root.fitYRange()
             }
         }
     }

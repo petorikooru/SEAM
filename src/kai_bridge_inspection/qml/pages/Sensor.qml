@@ -517,6 +517,7 @@ Item {
 
                     MotionChart {
                         id: accelChart
+                        autoScaleY: accelPanel.autoScaleY
                         anchors.fill: parent
                         frozen: page.isFrozen
                         panMode: page.accelPanMode
@@ -558,6 +559,7 @@ Item {
 
                     MotionChart {
                         id: inclinoChart
+                        autoScaleY: inclinoPanel.autoScaleY
                         anchors.fill: parent
                         frozen: page.isFrozen
                         panMode: page.inclPanMode

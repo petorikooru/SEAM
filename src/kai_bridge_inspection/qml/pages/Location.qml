@@ -693,6 +693,7 @@ Page {
                                     rowSpacing: 14
 
                                     MotionChartPanel {
+                                        id: accelChartPanel
                                         titleText: I18n.t("sensor.accelerometer", "Accelerometer")
                                         subtitleText: I18n.t("sensor.accelerometerHelp", "Three-axis acceleration")
                                         iconText: Icons.chart
@@ -711,6 +712,7 @@ Page {
 
                                         MotionChart {
                                             id: accelChart
+                                            autoScaleY: accelChartPanel.autoScaleY
                                             anchors.fill: parent
                                             frozen: page.isFrozen
                                             panMode: page.accelPanMode
@@ -728,6 +730,7 @@ Page {
                                     }
 
                                     MotionChartPanel {
+                                        id: inclinoChartPanel
                                         titleText: I18n.t("sensor.inclinometer", "Inclinometer")
                                         subtitleText: I18n.t("sensor.inclinometerHelp", "Pitch and roll angles")
                                         iconText: Icons.pinPoint
@@ -745,6 +748,7 @@ Page {
 
                                         MotionChart {
                                             id: inclinoChart
+                                            autoScaleY: inclinoChartPanel.autoScaleY
                                             anchors.fill: parent
                                             frozen: page.isFrozen
                                             panMode: page.inclPanMode
